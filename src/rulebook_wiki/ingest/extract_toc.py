@@ -62,10 +62,13 @@ def extract_toc(
     entries: list[TocEntry] = []
     for level, title, page_1based in raw_toc:
         page_0based = max(0, page_1based - 1)  # Convert to 0-based; clamp to 0 for negative
+        # Normalize title: strip leading/trailing whitespace and collapse internal newlines
+        # (PyMuPDF sometimes splits long bookmark titles across lines)
+        title_clean = " ".join(title.split())
         entries.append(
             TocEntry(
                 level=level,
-                title=title.strip(),
+                title=title_clean,
                 pdf_page=page_0based,
             )
         )

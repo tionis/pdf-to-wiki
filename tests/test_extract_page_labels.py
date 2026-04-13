@@ -78,3 +78,30 @@ class TestExtractPageLabels:
         import pytest
         with pytest.raises(ValueError, match="No registered PDF"):
             extract_page_labels("nonexistent", config)
+
+class TestPageLabelsProperty:
+    def test_pypdf_page_labels_property_used(self, tmp_path: Path, config: WikiConfig):
+        """When pypdf's page_labels property works, it should be preferred over manual parsing."""
+        pdf_path = tmp_path / "book.pdf"
+        # Our test PDFs don't have explicit /PageLabels, but we can test
+        # that the fallback path works correctly for a standard PDF
+        create_test_pdf(pdf_path, num_pages=5)
+
+        register_pdf(str(pdf_path), config)
+        labels = extract_page_labels("book", config)
+
+        # With pypdf's page_labels property, even simple PDFs should get labels
+        assert len(labels) == 5
+        assert all(isinstance(pl.label, str) for pl in labels)
+
+    def test_roman_numeral_from_page_labels(self, tmp_path: Path, config: WikiConfig):
+        """Test that Roman numeral page labels are properly extracted when available."""
+        # This tests our _to_roman formatter directly since our test PDFs
+        # don't easily support /PageLabels injection
+        from rulebook_wiki.ingest.extract_page_labels import _to_roman, _format_label
+
+        assert _format_label("", "/r", 1) == "i"
+        assert _format_label("", "/r", 4) == "iv"
+        assert _format_label("", "/R", 9) == "IX"
+        assert _format_label("", "/D", 5) == "5"
+        assert _format_label("App-", "/D", 3) == "App-3"

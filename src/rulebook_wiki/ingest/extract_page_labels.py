@@ -81,27 +81,58 @@ def extract_page_labels(
 
 
 def _compute_page_labels(reader: PdfReader, page_count: int) -> list[PageLabel]:
-    """Compute page labels from pypdf's page label info.
+    """Compute page labels using pypdf's built-in page_labels property.
 
-    Falls back to simple sequential numbering if no /PageLabels dict exists.
+    pypdf >= 3.0 exposes a `page_labels` property that handles all the
+    /PageLabels parsing internally, including Roman numerals, prefixes,
+    and style codes. We prefer this over manual parsing.
+
+    Falls back to manual /PageLabels parsing if the property is not
+    available, and to simple sequential numbering if nothing works.
     """
     labels: list[PageLabel] = []
 
+    # Try pypdf's built-in page_labels property first (most reliable)
     try:
-        # pypdf exposes page labels via the trailer's /PageLabels entry
-        # Some PDFs have this; many don't.
-        root = reader.trailer.get("/Root", {})
-        if isinstance(root, dict):
-            page_label_info = root.get("/PageLabels", None)
-        else:
-            page_label_info = None
+        page_label_list = reader.page_labels
+        if page_label_list and len(page_label_list) == page_count:
+            labels = [
+                PageLabel(page_index=i, label=str(label))
+                for i, label in enumerate(page_label_list)
+            ]
+            logger.info(f"Extracted {len(labels)} page labels from pypdf page_labels property")
+            return labels
+        elif page_label_list:
+            # Partial page labels — use what we have and fill in the rest
+            for i in range(page_count):
+                if i < len(page_label_list):
+                    labels.append(PageLabel(page_index=i, label=str(page_label_list[i])))
+                else:
+                    labels.append(PageLabel(page_index=i, label=str(i + 1)))
+            logger.info(f"Extracted partial page labels from pypdf ({len(page_label_list)} of {page_count})")
+            return labels
+    except Exception as e:
+        logger.debug(f"pypdf page_labels property not available: {e}")
 
-        if page_label_info is not None:
-            labels = _parse_page_labels_dict(page_label_info, page_count)
+    # Try manual /PageLabels parsing as fallback
+    try:
+        root_obj = reader.trailer.get("/Root")
+        if root_obj is not None:
+            # Resolve indirect reference if needed
+            if hasattr(root_obj, "get_object"):
+                root_dict = root_obj.get_object()
+            else:
+                root_dict = root_obj
+
+            if isinstance(root_dict, dict) and "/PageLabels" in root_dict:
+                page_label_info = root_dict["/PageLabels"]
+                if hasattr(page_label_info, "get_object"):
+                    page_label_info = page_label_info.get_object()
+                labels = _parse_page_labels_dict(page_label_info, page_count)
     except Exception as e:
         logger.warning(f"Could not parse /PageLabels from PDF: {e}")
 
-    # If no explicit labels, generate default numeric ones (1-indexed)
+    # Final fallback: generate default numeric labels (1-indexed)
     if not labels:
         logger.info("No explicit /PageLabels found; falling back to 1-indexed numeric labels")
         labels = [PageLabel(page_index=i, label=str(i + 1)) for i in range(page_count)]
