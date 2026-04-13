@@ -111,6 +111,23 @@ def build_section_tree(ctx: click.Context, source_id: str, force: bool) -> None:
         click.echo(f"  {node.title} [{node.section_id}] (pages {node.pdf_page_start}-{node.pdf_page_end})")
 
 
+@main.command(name="extract")
+@click.argument("source_id")
+@click.option("--force", is_flag=True, help="Force re-extraction")
+@click.pass_context
+def extract(ctx: click.Context, source_id: str, force: bool) -> None:
+    """Extract text content from the PDF for each section."""
+    from rulebook_wiki.ingest.extract_text import extract_text
+
+    cfg = ctx.obj["config"]
+    result = extract_text(source_id, cfg, force=force)
+    total_chars = sum(len(t) for t in result.values())
+    non_empty = sum(1 for t in result.values() if t.strip())
+    click.echo(f"Extracted text for {source_id}:")
+    click.echo(f"  Sections with content: {non_empty}/{len(result)}")
+    click.echo(f"  Total characters: {total_chars:,}")
+
+
 @main.command(name="emit-skeleton")
 @click.argument("source_id")
 @click.option("--force", is_flag=True, help="Force re-emission")
@@ -132,12 +149,14 @@ def emit_skeleton(ctx: click.Context, source_id: str, force: bool, force_step: s
 @click.argument("source_id")
 @click.option("--force", is_flag=True, help="Force re-run all steps")
 @click.option("--force-step", default=None, help="Force re-run of a specific step")
+@click.option("--skip-extract", is_flag=True, help="Skip text extraction step (emit skeleton only)")
 @click.pass_context
-def build(ctx: click.Context, source_id: str, force: bool, force_step: str | None) -> None:
+def build(ctx: click.Context, source_id: str, force: bool, force_step: str | None, skip_extract: bool) -> None:
     """Run the full pipeline for a registered PDF source."""
     from rulebook_wiki.ingest.extract_toc import extract_toc
     from rulebook_wiki.ingest.extract_page_labels import extract_page_labels as extract_pl
     from rulebook_wiki.ingest.build_section_tree import build_section_tree
+    from rulebook_wiki.ingest.extract_text import extract_text
     from rulebook_wiki.emit.markdown_writer import emit_skeleton
     from rulebook_wiki.cache.db import CacheDB
 
@@ -156,18 +175,25 @@ def build(ctx: click.Context, source_id: str, force: bool, force_step: str | Non
     click.echo(f"Source: {source.path} ({source.page_count} pages)")
     click.echo()
 
-    click.echo("Step 1/5: Extracting TOC...")
+    click.echo("Step 1/6: Extracting TOC...")
     extract_toc(source_id, cfg, force=step_force)
 
-    click.echo("Step 2/5: Extracting page labels...")
+    click.echo("Step 2/6: Extracting page labels...")
     extract_pl(source_id, cfg, force=step_force)
 
-    click.echo("Step 3/5: Building section tree...")
+    click.echo("Step 3/6: Building section tree...")
     build_section_tree(source_id, cfg, force=step_force)
 
-    click.echo("Step 4/5: Emitting Markdown skeleton...")
+    if not skip_extract:
+        click.echo("Step 4/6: Extracting text content...")
+        extract_text(source_id, cfg, force=step_force)
+    else:
+        click.echo("Step 4/6: Skipping text extraction (--skip-extract)")
+
+    click.echo("Step 5/6: Emitting Markdown notes...")
     manifest = emit_skeleton(source_id, cfg, force=force, force_step=force_step)
 
+    click.echo("Step 6/6: Done!")
     click.echo(f"\n=== Build complete: {len(manifest)} notes emitted ===")
 
 

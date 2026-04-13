@@ -4,8 +4,8 @@ This is a deterministic operation; no LLM is involved.
 
 Each generated note includes:
 - YAML frontmatter with source and page metadata
-- Title heading (H1 or appropriate level)
-- Placeholder body content for future extraction
+- Title heading
+- Extracted text content (if available) or a placeholder
 """
 
 from __future__ import annotations
@@ -32,6 +32,9 @@ def emit_skeleton(
     force_step: str | None = None,
 ) -> dict[str, str]:
     """Emit Markdown skeleton files from the cached section tree.
+
+    If extracted text is available (from the extract step), it will be
+    included in each section's note body. Otherwise, a placeholder is used.
 
     Returns a dict mapping section_id → relative output path.
     """
@@ -62,6 +65,13 @@ def emit_skeleton(
         raise ValueError(f"No section tree for {source_id}. Run 'build-section-tree' first.")
     tree = SectionTree(**tree_data)
 
+    # Load extracted text if available
+    extracted_text: dict[str, str] | None = artifacts.load_json(source_id, "extract_text")
+    if extracted_text is not None:
+        logger.info(f"Loaded extracted text for {len(extracted_text)} sections")
+    else:
+        logger.info("No extracted text found; notes will use placeholders")
+
     # Generate Markdown files
     output_dir = config.resolved_output_dir()
     emit_manifest: dict[str, str] = {}
@@ -71,7 +81,8 @@ def emit_skeleton(
         abs_path = output_dir / rel_path
         abs_path.parent.mkdir(parents=True, exist_ok=True)
 
-        content = _render_note(node, tree, source.path)
+        section_text = extracted_text.get(section_id, "") if extracted_text else ""
+        content = _render_note(node, tree, source.path, section_text)
         abs_path.write_text(content, encoding="utf-8")
 
         # Update node's markdown_output_path
@@ -108,8 +119,12 @@ def emit_skeleton(
     return emit_manifest
 
 
-def _render_note(node: SectionNode, tree: SectionTree, source_pdf_path: str) -> str:
-    """Render a single Markdown note for a section node."""
+def _render_note(node: SectionNode, tree: SectionTree, source_pdf_path: str, extracted_text: str = "") -> str:
+    """Render a single Markdown note for a section node.
+
+    If extracted_text is non-empty, it is included as the note body.
+    Otherwise, a placeholder is used.
+    """
     # Frontmatter
     fm = {
         "source_pdf": str(source_pdf_path),
@@ -138,8 +153,11 @@ def _render_note(node: SectionNode, tree: SectionTree, source_pdf_path: str) -> 
     # Title heading (H1)
     heading = f"# {node.title}"
 
-    # Placeholder body
-    body = "> Content extraction not yet populated."
+    # Body: use extracted text or placeholder
+    if extracted_text and extracted_text.strip():
+        body = extracted_text.strip()
+    else:
+        body = "> Content extraction not yet populated."
 
     return f"{fm_block}\n\n{heading}\n\n{body}\n"
 

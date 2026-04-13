@@ -85,6 +85,17 @@ rulebook-wiki build-section-tree my-rulebook
 Options:
 - `--force` — Force rebuild
 
+### `rulebook-wiki extract`
+
+Extract text content from the PDF for each section's page range. Uses PyMuPDF's `page.get_text()` for baseline extraction. Results are cached as JSON artifacts.
+
+```bash
+rulebook-wiki extract my-rulebook
+```
+
+Options:
+- `--force` — Force re-extraction
+
 ### `rulebook-wiki emit-skeleton`
 
 Emit Markdown skeleton files from the section tree. Creates directories and `.md` files with YAML frontmatter.
@@ -99,7 +110,7 @@ Options:
 
 ### `rulebook-wiki build`
 
-Run the full pipeline: register → toc → page-labels → section-tree → emit-skeleton.
+Run the full pipeline: register → toc → page-labels → section-tree → extract → emit-skeleton.
 
 ```bash
 rulebook-wiki build my-rulebook
@@ -108,6 +119,7 @@ rulebook-wiki build my-rulebook
 Options:
 - `--force` — Force re-run all steps
 - `--force-step <step>` — Force re-run a specific step
+- `--skip-extract` — Skip text extraction (emit skeleton only)
 
 ## Global Options
 
@@ -201,7 +213,7 @@ The pipeline persists intermediate results under `data/artifacts/<source_id>/`:
 | `toc.json` | List of TOC entries (level, title, pdf_page) |
 | `page_labels.json` | List of page label mappings (page_index, label) |
 | `section_tree.json` | Full section tree with all nodes, page ranges, and output paths |
-| `emit_manifest.json` | Mapping from section_id to output file path |
+| `extract_text.json` | Extracted text content per section (section_id → text string)
 
 These artifacts enable:
 - **Inspection** — understand what each step produced

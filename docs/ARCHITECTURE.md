@@ -23,8 +23,8 @@ The Rulebook Wiki Pipeline is a **coordinator pipeline**, not a monolithic conve
 2. **TOC Extract** — Extract the PDF's embedded bookmarks/outline via PyMuPDF. Normalize page numbers to 0-based. Persist as JSON artifact.
 3. **Page Labels Extract** — Extract printed page labels (Roman numerals, Arabic numbers) via pypdf. Fall back to 1-indexed numeric labels if no `/PageLabels` dict. Persist as JSON artifact.
 4. **Section Tree** — Build a canonical tree of `SectionNode` objects from the TOC + page labels. Compute page ranges, parent-child relationships, and section IDs. This is the backbone of the entire system. Persist as JSON artifact.
-5. **Emit Skeleton** — Generate Markdown files from the section tree. Each section with children becomes a directory with `index.md`; leaf sections become individual `.md` files. YAML frontmatter includes full source and page metadata. Persist an emit manifest.
-6. **(Future) Extract** — Run PDF text extraction (Marker or alternative) on section page ranges. Store structured intermediate artifacts.
+5. **Extract Text** — Extract text content from each section's page range using PyMuPDF's `page.get_text()`. Results are cached as a JSON artifact mapping section_id → text content. This is a baseline extractor; Marker or other engines can be substituted later.
+6. **Emit Notes** — Generate Markdown files from the section tree. Each section with children becomes a directory with `index.md`; leaf sections become individual `.md` files. YAML frontmatter includes full source and page metadata. If extracted text is available, it is included in the note body; otherwise a placeholder is used. Persist an emit manifest.
 7. **(Future) Repair** — Normalize broken bullets, fix headings, repair references. LLM-assisted when deterministic logic is insufficient.
 8. **(Future) Link / Enrich** — Rewrite cross-references, build global concept pages, create entity registries.
 
@@ -138,6 +138,7 @@ src/rulebook_wiki/
 │   ├── inspect_pdf.py   # PDF metadata lookup
 │   ├── extract_toc.py   # TOC extraction via PyMuPDF
 │   ├── extract_page_labels.py  # Page labels via pypdf
+│   ├── extract_text.py  # Text extraction via PyMuPDF
 │   └── build_section_tree.py   # Canonical section tree construction
 ├── extract/             # (Stub) Future: Marker/OCR integration
 ├── repair/              # (Stub) Future: repair and normalization

@@ -8,7 +8,9 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ## Current Status
 
-**Milestone 1 complete.** The pipeline can ingest one PDF, extract its embedded TOC and page labels, build a canonical section tree, and emit a deterministic Markdown skeleton with full frontmatter. Reruns skip unchanged steps via the caching system.
+**Milestone 1+text extraction complete.** The pipeline can ingest one PDF, extract its embedded TOC and page labels, build a canonical section tree, extract text content per section using PyMuPDF, and emit Markdown notes populated with extracted text. Reruns skip unchanged steps via the caching system.
+
+Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries). All sections populated with real content.
 
 ---
 
@@ -27,6 +29,15 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] CLI commands: register, inspect, toc, page-labels, build-section-tree, emit-skeleton, build
 - [x] Test suite (60 tests passing)
 - [x] Project documentation (README, ARCHITECTURE, USAGE, AGENTS, ROADMAP)
+
+- [x] Text extraction via PyMuPDF (baseline, per-section page ranges)
+- [x] Markdown emission now includes extracted text content (or placeholder if not extracted)
+- [x] `extract` CLI command for running text extraction
+- [x] `build` updated to include extract step (with `--skip-extract` option)
+- [x] TOC title normalization (collapse newlines from PyMuPDF bookmarks)
+- [x] Page-label extraction now uses pypdf's built-in `page_labels` property
+- [x] Test suite expanded to 69 tests
+- [x] Tested against real PDF (Storypath Ultra Core Manual, 257 pages)
 
 ### Milestone 2 — Structured text extraction for one PDF 🔜
 
@@ -89,10 +100,12 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ### Next
 
-- [ ] Investigate Marker integration for text extraction
-- [ ] Design extraction artifact schema (structured, not just raw Markdown)
-- [ ] Implement section-scoped extraction runner
-- [ ] Add content population to emitted Markdown files
+- [ ] Improve text extraction quality (remove page headers/footers, handle columns)
+- [ ] Design extraction artifact schema (structured, not just raw text)
+- [ ] Implement section-scoped extraction improvements
+- [ ] Add content population to emitted Markdown with better formatting
+- [ ] Integrate Marker for higher-quality extraction
+- [ ] Handle PDFs without embedded TOCs (fallback mode)
 
 ### Deferred / Later
 
@@ -134,16 +147,21 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ## Change Log
 
-### 2025-01-XX — Milestone 1 complete
+### 2025-01-XX — Milestone 1 complete + text extraction
 
 - Initial project skeleton with pyproject.toml and package layout
 - Implemented PDF registration, fingerprinting, inspection
 - Implemented TOC extraction via PyMuPDF
-- Implemented page-label extraction via pypdf
+- Implemented page-label extraction via pypdf (with built-in `page_labels` property)
 - Built canonical section tree from TOC + page labels
 - Implemented Obsidian Markdown skeleton emission with YAML frontmatter
 - Implemented SQLite cache/provenance store and filesystem artifacts
 - Implemented step manifest tracking with --force support
-- Full CLI with register, inspect, toc, page-labels, build-section-tree, emit-skeleton, build
-- 60 tests passing across all modules
+- Added text extraction via PyMuPDF (baseline, per-section page ranges)
+- Markdown notes now populated with extracted text content
+- TOC title normalization (collapse newlines from long bookmark names)
+- Added `extract` CLI command; `build` now includes extract step
+- Full CLI: register, inspect, toc, page-labels, build-section-tree, extract, emit-skeleton, build
+- 69 tests passing across all modules
 - Documentation: README, ARCHITECTURE, USAGE, AGENTS, ROADMAP
+- Tested against real PDF: Storypath Ultra Core Manual (257 pages, 450 TOC entries)
