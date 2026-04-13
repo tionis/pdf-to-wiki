@@ -7,13 +7,13 @@ The Rulebook Wiki Pipeline is a **coordinator pipeline**, not a monolithic conve
 ## Pipeline Stages
 
 ```
-┌──────────┐    ┌──────────┐    ┌──────────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-│ Register │ →  │   TOC    │ →  │  Page Labels  │ →  │ Section  │ →  │   Emit   │ →  │  Future: │
-│   PDF    │    │Extract   │    │   Extract     │    │   Tree   │    │ Skeleton │    │ Extract  │
-│          │    │          │    │               │    │          │    │  (MD)   │    │ + Repair │
-└──────────┘    └──────────┘    └──────────────┘    └──────────┘    └──────────┘    └──────────┘
-     │               │                │                   │               │
-     └───────────────┴────────────────┴───────────────────┴───────────────┘
+┌──────────┐    ┌──────────┐    ┌──────────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+│ Register │ →  │   TOC    │ →  │  Page Labels  │ →  │ Section  │ →  │ Extract  │ →  │   Emit   │ →  │  Future: │
+│   PDF    │    │Extract   │    │   Extract     │    │   Tree   │    │   Text   │    │ Skeleton │    │  Repair  │
+│          │    │          │    │               │    │          │    │(engine)  │    │  (MD)   │    │          │
+└──────────┘    └──────────┘    └──────────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘
+     │               │                │                   │               │               │
+     └───────────────┴────────────────┴───────────────────┴───────────────┴───────────────┘
                             SQLite Cache + JSON Artifacts
 ```
 
@@ -23,10 +23,50 @@ The Rulebook Wiki Pipeline is a **coordinator pipeline**, not a monolithic conve
 2. **TOC Extract** — Extract the PDF's embedded bookmarks/outline via PyMuPDF. Normalize page numbers to 0-based. Persist as JSON artifact.
 3. **Page Labels Extract** — Extract printed page labels (Roman numerals, Arabic numbers) via pypdf. Fall back to 1-indexed numeric labels if no `/PageLabels` dict. Persist as JSON artifact.
 4. **Section Tree** — Build a canonical tree of `SectionNode` objects from the TOC + page labels. Compute page ranges, parent-child relationships, and section IDs. This is the backbone of the entire system. Persist as JSON artifact.
-5. **Extract Text** — Extract text content from each section's page range using PyMuPDF's `page.get_text()`. Results are cached as a JSON artifact mapping section_id → text content. This is a baseline extractor; Marker or other engines can be substituted later.
-6. **Emit Notes** — Generate Markdown files from the section tree. Each section with children becomes a directory with `index.md`; leaf sections become individual `.md` files. YAML frontmatter includes full source and page metadata. If extracted text is available, it is included in the note body; otherwise a placeholder is used. Persist an emit manifest.
-7. **(Future) Repair** — Normalize broken bullets, fix headings, repair references. LLM-assisted when deterministic logic is insufficient.
-8. **(Future) Link / Enrich** — Rewrite cross-references, build global concept pages, create entity registries.
+5. **Extract Text** — Extract text content using a pluggable extraction engine. **Marker** (default): ML-powered, produces clean Markdown with columns/tables/bold-italic. **PyMuPDF** (fallback): deterministic, column-aware with header/footer removal. Full-PDF Marker output is cached as `marker_full_md.md`. Sections without heading matches fall back to PyMuPDF per-page extraction. Persist as JSON artifact.
+6. **Emit Notes** — Generate Markdown files from the section tree. Each section with children becomes a directory with `index.md`; leaf sections become individual `.md` files. YAML frontmatter includes full source and page metadata. Persist an emit manifest.
+7. **(Future) Repair** — Normalize broken bullets, fix headings, repair references.
+8. **(Future) Link / Enrich** — Rewrite cross-references, build global concept pages.
+
+## Extraction Engine Architecture
+
+### BaseEngine ABC (`extract/__init__.py`)
+
+All extraction engines implement:
+- `extract_page_range(pdf_path, start_page, end_page) -> str`
+- `engine_name -> str` (for provenance)
+- `engine_version -> str` (for provenance)
+
+Engines are registered via `@register_engine("name")` decorator and instantiated via `get_engine("name", config)`.
+
+### Marker Engine (`extract/marker_engine.py`)
+
+- Uses `marker-pdf` library with layout recognition, OCR error detection, table recognition
+- Models downloaded on first use (~2GB), cached in `~/.cache/datalab/models/`
+- `extract_full_pdf()`: Converts entire PDF in one pass (most efficient)
+- `extract_page_range()`: Creates temp PDF excerpt, converts just those pages
+- `split_markdown_by_headings()`: Splits full-PDF Markdown into per-section content by matching section titles to heading anchors
+- Performance: ~30s/page on CPU (one-time cost, result cached)
+
+### PyMuPDF Engine (`extract/pymupdf_engine.py`)
+
+- Uses PyMuPDF dict-mode extraction with column-aware layout handling
+- `repair/clean_text.py`: Header/footer detection, soft-hyphen removal, hard-hyphen rejoin, paragraph assembly, page number stripping
+- Performance: ~0.1s/page (no ML models)
+- Quality: decent but may have column mixing issues on 2-column layouts
+
+### Engine Selection
+
+- Config: `extract.engine = "marker"` (default) or `"pymupdf"`
+- CLI: `--engine marker` or `--engine pymupdf`
+- Unknown engines fall back to pymupdf with a warning
+
+### Marker Full-PDF Caching Strategy
+
+1. Convert entire PDF in one Marker call → `marker_full_md.md` artifact
+2. Split Markdown by heading anchors → per-section content
+3. Sections without heading matches → PyMuPDF fallback
+4. On re-run, cached `marker_full_md.md` is reused (no re-conversion)
 
 ## Data Model
 
@@ -37,9 +77,9 @@ The Rulebook Wiki Pipeline is a **coordinator pipeline**, not a monolithic conve
 | `PdfSource` | Registered PDF: source_id, path, SHA-256, title, page count |
 | `TocEntry` | Single TOC bookmark: level, title, pdf_page (0-based) |
 | `PageLabel` | Page index → printed label mapping |
-| `SectionNode` | Node in the canonical section tree: section_id, title, slug, level, parent, children, page ranges, printed labels, output path |
+| `SectionNode` | Node in the canonical section tree: section_id, title, slug, level, parent, children, page ranges, printed labels |
 | `SectionTree` | Full tree for one PDF: source_id, nodes dict, root_ids list |
-| `ProvenanceRecord` | Artifact provenance: who made it, when, with what tool and config |
+| `ProvenanceRecord` | Artifact provenance: who made it, when, with what tool |
 | `StepManifest` | Per-step completion tracking in the pipeline |
 
 ### Key Invariants
@@ -61,11 +101,13 @@ Three tables:
 
 ### Filesystem Artifacts
 
-JSON files stored under `data/artifacts/<source_id>/`:
+Files stored under `data/artifacts/<source_id>/`:
 - `pdf_source.json` — PdfSource model dump
 - `toc.json` — list of TocEntry dumps
 - `page_labels.json` — list of PageLabel dumps
 - `section_tree.json` — full SectionTree dump
+- `marker_full_md.md` — Marker's full-PDF Markdown output (cached)
+- `extract_text.json` — section_id → extracted text mapping
 - `emit_manifest.json` — section_id → output path mapping
 
 ### Cache Semantics
@@ -73,55 +115,7 @@ JSON files stored under `data/artifacts/<source_id>/`:
 - Each pipeline step checks `StepManifestStore.is_completed()` before running
 - If a step's artifact exists and the step is marked completed, it's skipped
 - `--force` forces re-run of the current command's step
-- `--force-step <step>` forces re-run of a specific step by name
-- Config hash comparison is supported for detecting when configuration has changed
-
-## Section ID and Path Generation
-
-### Section IDs
-
-```
-<source_id>/<slug-path>
-```
-
-Where `slug-path` chains ancestor and child slugs:
-- `core-rulebook/chapter-1-introduction`
-- `core-rulebook/chapter-1-introduction/overview`
-- `core-rulebook/chapter-2-characters/attributes/strength`
-
-### Slug Rules
-
-- Unicode → ASCII via NFKD normalization
-- Lowercase
-- Parentheses and brackets stripped
-- Non-alphanumeric → hyphens
-- Multiple hyphens collapsed
-- Leading/trailing hyphens stripped
-
-### Output Paths
-
-- Sections **with children** → `<books_dir>/<slug-path>/index.md`
-- Sections **without children** → `<books_dir>/<slug-path>.md`
-
-### Frontmatter
-
-Every emitted Markdown file includes:
-
-```yaml
-source_pdf: core-rulebook.pdf
-source_pdf_id: core-rulebook
-section_id: core-rulebook/chapter-02/skills
-level: 2
-pdf_page_start: 45
-pdf_page_end: 53
-printed_page_start: 31
-printed_page_end: 39
-parent_section_id: core-rulebook/chapter-02
-aliases: []
-tags:
-  - rulebook
-  - imported
-```
+- `--engine` selects the extraction engine (Marker is default)
 
 ## Module Layout
 
@@ -138,10 +132,14 @@ src/rulebook_wiki/
 │   ├── inspect_pdf.py   # PDF metadata lookup
 │   ├── extract_toc.py   # TOC extraction via PyMuPDF
 │   ├── extract_page_labels.py  # Page labels via pypdf
-│   ├── extract_text.py  # Text extraction via PyMuPDF
+│   ├── extract_text.py  # Text extraction (engine dispatch, caching)
 │   └── build_section_tree.py   # Canonical section tree construction
-├── extract/             # (Stub) Future: Marker/OCR integration
-├── repair/              # (Stub) Future: repair and normalization
+├── extract/
+│   ├── __init__.py      # BaseEngine ABC, engine registry
+│   ├── pymupdf_engine.py # PyMuPDF extraction engine
+│   └── marker_engine.py  # Marker extraction engine
+├── repair/
+│   └── clean_text.py   # Structured extraction + text cleaning
 ├── emit/
 │   ├── markdown_writer.py  # Markdown skeleton emission
 │   └── obsidian_paths.py   # Deterministic path generation
@@ -157,8 +155,9 @@ src/rulebook_wiki/
 
 1. **TOC is the source of truth for hierarchy.** PDF layout inference can be wrong; embedded bookmarks are more reliable for chapter structure.
 2. **Deterministic operations use no LLM.** TOC extraction, page counting, slug generation, page-label extraction, and Markdown emission are deterministic.
-3. **LLM usage is constrained and cached.** When LLM steps are added, they must check the cache before calling the model and persist both prompt and response.
+3. **LLM usage is constrained and cached.** When LLM steps are added, they must check the cache before calling the model.
 4. **Structured intermediates over text-to-text.** The pipeline produces JSON artifacts, not just "PDF in → Markdown out." This enables inspection, debugging, and partial re-runs.
-5. **Extraction engine is replaceable.** Marker will likely be the main extractor, but the architecture allows swapping it out. Section-scoped extraction is the integration point.
-6. **Multi-PDF from the start.** All identities are namespaced by source_id even though M1 handles one PDF. This prevents painful refactoring later.
-7. **Two-layer wiki model (future).** Layer 1: per-source trees preserving the original book structure. Layer 2: global semantic overlay with shared concepts, aliases, and cross-links. No destructive merging.
+5. **Extraction engines are pluggable.** Marker is the default for quality; PyMuPDF is the fast deterministic fallback. New engines (Docling, OCR) can be added via `@register_engine`.
+6. **Marker output is cached at the full-PDF level.** A single Marker call converts the entire PDF; the result is cached as `marker_full_md.md` and split into sections on subsequent runs.
+7. **Multi-PDF from the start.** All identities are namespaced by source_id.
+8. **Two-layer wiki model (future).** Layer 1: per-source trees preserving the original book structure. Layer 2: global semantic overlay with shared concepts and cross-links.

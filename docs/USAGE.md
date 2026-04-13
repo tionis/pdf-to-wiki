@@ -9,6 +9,9 @@ source .venv/bin/activate
 
 # Install the package in editable mode
 pip install -e ".[dev]"
+
+# Optional: install marker-pdf for high-quality ML extraction
+pip install marker-pdf
 ```
 
 ## CLI Commands
@@ -23,14 +26,6 @@ rulebook-wiki register path/to/my-rulebook.pdf
 
 Options:
 - `--force` — Re-register even if already cached
-
-Output:
-```
-Registered: my-rulebook
-  Title:     My Rulebook
-  Pages:     320
-  SHA-256:   a1b2c3d4e5f6…
-```
 
 ### `rulebook-wiki inspect`
 
@@ -51,21 +46,9 @@ rulebook-wiki toc my-rulebook
 Options:
 - `--force` — Force re-extraction
 
-Output:
-```
-TOC for my-rulebook: 12 entries
-
-[L1] Chapter 1: Introduction  (page 0)
-  [L2] Overview  (page 0)
-  [L2] Getting Started  (page 2)
-[L1] Chapter 2: Characters  (page 4)
-  [L2] Attributes  (page 4)
-  [L2] Skills  (page 8)
-```
-
 ### `rulebook-wiki page-labels`
 
-Extract printed page labels from the PDF. If the PDF has no explicit `/PageLabels` dictionary, falls back to 1-indexed numeric labels.
+Extract printed page labels from the PDF.
 
 ```bash
 rulebook-wiki page-labels my-rulebook
@@ -87,53 +70,67 @@ Options:
 
 ### `rulebook-wiki extract`
 
-Extract text content from the PDF for each section's page range. Uses PyMuPDF's `page.get_text()` for baseline extraction. Results are cached as JSON artifacts.
+Extract text content from the PDF for each section's page range.
 
 ```bash
+# Use Marker (default) — high quality, ML-powered, ~30s/page on CPU
 rulebook-wiki extract my-rulebook
+
+# Use PyMuPDF — fast, deterministic, no ML models
+rulebook-wiki extract my-rulebook --engine pymupdf
 ```
 
 Options:
-- `--force` — Force re-extraction
+- `--force` — Force re-extraction (re-runs full Marker conversion)
+- `--engine marker|pymupdf` — Override the configured extraction engine
+
+### Extraction Engines
+
+| Engine | Quality | Speed | Requirements |
+|--------|--------|-------|-------------|
+| **marker** (default) | High — columns, tables, bold/italic, heading hierarchy | ~30s/page (CPU) | `marker-pdf` + ~2GB ML models |
+| **pymupdf** | Medium — column-aware, header/footer removal | ~0.1s/page | PyMuPDF only |
+
+Marker output is cached at the full-PDF level. First run converts the entire PDF (~2hrs for 257 pages on CPU). Subsequent runs reuse the cached Markdown and split by headings.
 
 ### `rulebook-wiki emit-skeleton`
 
-Emit Markdown skeleton files from the section tree. Creates directories and `.md` files with YAML frontmatter.
+Emit Markdown files from the section tree with YAML frontmatter.
 
 ```bash
 rulebook-wiki emit-skeleton my-rulebook
 ```
 
-Options:
-- `--force` — Force re-emission
-- `--force-step <step>` — Force re-run of a specific pipeline step
-
 ### `rulebook-wiki build`
 
-Run the full pipeline: register → toc → page-labels → section-tree → extract → emit-skeleton.
+Run the full pipeline: register → toc → page-labels → section-tree → extract → emit.
 
 ```bash
+# Full pipeline with Marker extraction (default)
 rulebook-wiki build my-rulebook
+
+# Fast pipeline with PyMuPDF extraction
+rulebook-wiki build my-rulebook --engine pymupdf
+
+# Skip extraction entirely (skeleton only)
+rulebook-wiki build my-rulebook --skip-extract
 ```
 
 Options:
 - `--force` — Force re-run all steps
 - `--force-step <step>` — Force re-run a specific step
-- `--skip-extract` — Skip text extraction (emit skeleton only)
+- `--engine marker|pymupdf` — Override extraction engine
+- `--skip-extract` — Skip text extraction
 
 ## Global Options
 
-These apply to all commands:
-
 - `--config <path>` — Path to a configuration TOML file
-- `--output-dir <dir>` — Override output directory for generated wiki
-- `--cache-dir <dir>` — Override cache directory (sets both DB and artifact paths)
+- `--output-dir <dir>` — Override output directory
+- `--cache-dir <dir>` — Override cache directory
 
 ## Configuration
 
-The pipeline reads configuration from `rulebook-wiki.toml` (or `rulebook_wiki.toml`) in the current directory, or from a path specified via `--config`.
-
-### Full Configuration
+The pipeline reads from `rulebook-wiki.toml` (or `rulebook_wiki.toml`).
 
 ```toml
 [wiki]
@@ -150,105 +147,39 @@ default_model = "glm-5.1:cloud"
 temperature = 0.0
 
 [extract]
-engine = "marker"
-use_llm = false
-prefer_ocr = false
+engine = "marker"   # "marker" (default) or "pymupdf"
 
 [obsidian]
 emit_frontmatter = true
 emit_index_notes = true
 ```
 
-### Defaults
-
-All configuration values have sensible defaults. You can run the pipeline without a config file — it will use the default paths under `./data/`.
-
-## Output Structure
-
-After running `rulebook-wiki build my-rulebook`, the output directory looks like:
-
-```
-data/outputs/wiki/
-└── books/
-    └── my-rulebook/
-        ├── index.md                        # Book-level index
-        ├── chapter-1-introduction/
-        │   ├── index.md                    # Chapter 1 (has children → directory)
-        │   ├── overview.md                 # Leaf section
-        │   └── getting-started.md          # Leaf section
-        └── chapter-2-characters.md          # Leaf chapter (no sub-sections)
-```
-
-### Frontmatter Example
-
-```yaml
----
-source_pdf: my-rulebook.pdf
-source_pdf_id: my-rulebook
-section_id: my-rulebook/chapter-1-introduction/overview
-level: 2
-pdf_page_start: 0
-pdf_page_end: 1
-printed_page_start: '1'
-printed_page_end: '2'
-parent_section_id: my-rulebook/chapter-1-introduction
-aliases: []
-tags:
-- rulebook
-- imported
----
-
-# Overview
-
-> Content extraction not yet populated.
-```
-
 ## Intermediate Artifacts
 
-The pipeline persists intermediate results under `data/artifacts/<source_id>/`:
+Under `data/artifacts/<source_id>/`:
 
 | File | Content |
 |------|---------|
-| `pdf_source.json` | PDF metadata (source_id, path, SHA-256, title, page count) |
-| `toc.json` | List of TOC entries (level, title, pdf_page) |
-| `page_labels.json` | List of page label mappings (page_index, label) |
-| `section_tree.json` | Full section tree with all nodes, page ranges, and output paths |
-| `extract_text.json` | Extracted text content per section (section_id → text string)
-
-These artifacts enable:
-- **Inspection** — understand what each step produced
-- **Partial re-runs** — skip steps whose artifacts are already correct
-- **Debugging** — trace issues without re-running the full pipeline
-
-## Caching Behavior
-
-- Running the same command twice **skips unchanged steps** automatically
-- Use `--force` to re-run the current step
-- Use `--force-step toc` to force re-extraction of the TOC (for example)
-- Step manifest status is tracked in SQLite: `pending → running → completed/failed`
-
-## Source ID Derivation
-
-The `source_id` is derived deterministically from the PDF filename:
-- Filename stem (without `.pdf`)
-- Lowercased
-- Spaces and underscores → hyphens
-- Parentheses and brackets stripped
-- Multiple hyphens collapsed
-
-Examples:
-- `Core Rulebook.pdf` → `core-rulebook`
-- `PF2e - Core Rulebook (3rd Printing).pdf` → `pf2e-core-rulebook-3rd-printing`
+| `pdf_source.json` | PDF metadata |
+| `toc.json` | TOC entries |
+| `page_labels.json` | Page label mappings |
+| `section_tree.json` | Full section tree |
+| `marker_full_md.md` | Marker's cached full-PDF Markdown output |
+| `extract_text.json` | section_id → extracted text |
+| `emit_manifest.json` | section_id → output path |
 
 ## Running Tests
 
 ```bash
-# Run all tests
 pytest tests/ -v
-
-# Run specific test file
-pytest tests/test_integration.py -v
-
-# Run with coverage (if pytest-cov installed)
-pytest tests/ -v --cov=rulebook_wiki
 ```
+
+Tests use the PyMuPDF engine (fast, no ML models required).
+
+## Source ID Derivation
+
+Derived from the PDF filename: lowercase, spaces/underscores → hyphens, parentheses/brackets stripped.
+
+Examples:
+- `Core Rulebook.pdf` → `core-rulebook`
+- `PF2e - Core Rulebook (3rd Printing).pdf` → `pf2e-core-rulebook-3rd-printing`

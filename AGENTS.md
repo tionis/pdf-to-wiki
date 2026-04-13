@@ -2,18 +2,17 @@
 
 ## Project Overview
 
-**Rulebook Wiki Pipeline** converts pen-and-paper rulebook PDFs into structured Obsidian Markdown wikis. The pipeline extracts TOC/outline, page labels, and section metadata from PDFs, builds a canonical section tree, and emits deterministic Markdown files with YAML frontmatter.
+**Rulebook Wiki Pipeline** converts pen-and-paper rulebook PDFs into structured Obsidian Markdown wikis. The pipeline extracts TOC/outline, page labels, and section metadata from PDFs, builds a canonical section tree, extracts text content per section, and emits Markdown files with YAML frontmatter.
 
-**Current milestone (M1):** TOC-driven Markdown skeleton for one PDF. Full text extraction, repair, and LLM enrichment are future milestones.
+**Current milestone (M2):** Structured text extraction with pluggable engines (Marker + PyMuPDF).
 
 ---
 
 ## Before Making Changes
 
 1. **Read `README.md`** for a project summary and quick-start commands.
-2. **Read the handoff document** (`handoff.md`) for the full design rationale and long-term architecture.
-3. **Read `docs/ARCHITECTURE.md`** to understand the current module layout, data flow, and design constraints.
-4. **Read `docs/ROADMAP.md`** to understand what is done, what is in progress, and what is deferred.
+2. **Read `docs/ARCHITECTURE.md`** to understand the current module layout, data flow, and design constraints.
+3. **Read `docs/ROADMAP.md`** to understand what is done, what is in progress, and what is deferred.
 
 Do **not** start coding without this context. The architecture has strong opinions about caching, provenance, deterministic operations, and the role of LLMs.
 
@@ -25,12 +24,14 @@ These are **non-negotiable** unless explicitly reconsidered:
 
 - **The PDF TOC is the source of truth for hierarchy.** Do not infer heading depth from text styling.
 - **Markdown is NOT the only source of truth.** The canonical section tree JSON and the SQLite/JSON artifacts are the primary records.
-- **Use LLMs only for non-deterministic tasks.** TOC extraction, page counting, slug generation, page-label extraction, and Markdown emission must remain deterministic.
+- **Extraction engines are pluggable.** `BaseEngine` ABC in `extract/` with `@register_engine` decorator. Add new engines by subclassing and decorating.
+- **Default engine is Marker** (high quality, ML-powered). PyMuPDF is the fast fallback.
+- **Use LLMs only for non-deterministic tasks.** TOC extraction, page counting, slug generation, page-label extraction, Markdown emission, and engine dispatch must remain deterministic. Marker's ML inference is considered a "deterministic-ish" extraction step (cached, not LLM-driven).
 - **LLM backend:** Ollama, default model `glm-5.1:cloud`. Cache all LLM calls aggressively.
 - **Cache/provenance is built in from the start.** Every expensive step checks the cache before running and records provenance after.
-- **Per-step artifacts on disk.** Intermediate results (TOC, page labels, section tree) are persisted as JSON under the artifact directory.
-- **Design for multi-PDF ingestion.** All section IDs are namespaced by `source_id`. Even though M1 handles one PDF, the code must not assume global uniqueness of titles or slugs.
-- **Preserve backwards compatibility of persisted artifacts** unless intentionally migrating them. Document all schema changes and migrations in `docs/ROADMAP.md`.
+- **Per-step artifacts on disk.** Intermediate results (TOC, page labels, section tree, full-PDF Marker markdown) are persisted under the artifact directory.
+- **Design for multi-PDF ingestion.** All section IDs are namespaced by `source_id`.
+- **Preserve backwards compatibility of persisted artifacts** unless intentionally migrating them.
 
 ---
 
@@ -42,9 +43,8 @@ These are **non-negotiable** unless explicitly reconsidered:
   - `docs/ARCHITECTURE.md` (if architecture changes)
   - `docs/USAGE.md` (if CLI behavior changes)
   - `AGENTS.md` (if agent-facing conventions change)
-- **Update `docs/ROADMAP.md`** when starting and finishing substantial tasks.
 - **Run the test suite** before declaring work done: `pytest tests/ -v`
-- **Avoid undocumented architectural drift.** If you add a new module, data structure, or CLI command, document it.
+- **Tests must use `engine="pymupdf"`** — Marker requires ML models and takes minutes per test.
 
 ---
 
@@ -53,19 +53,22 @@ These are **non-negotiable** unless explicitly reconsidered:
 | Path | Purpose |
 |------|---------|
 | `src/rulebook_wiki/` | Main package |
-| `src/rulebook_wiki/cli.py` | CLI commands |
+| `src/rulebook_wiki/cli.py` | CLI commands (Click) |
 | `src/rulebook_wiki/models.py` | Canonical Pydantic data models |
-| `src/rulebook_wiki/config.py` | Configuration loading |
-| `src/rulebook_wiki/ingest/` | PDF ingestion (register, TOC, page labels, section tree) |
+| `src/rulebook_wiki/config.py` | Configuration loading (TOML) |
+| `src/rulebook_wiki/ingest/` | PDF ingestion (register, TOC, page labels, section tree, extract) |
+| `src/rulebook_wiki/ingest/extract_text.py` | Extraction orchestration (engine dispatch, caching) |
+| `src/rulebook_wiki/extract/` | Extraction engine framework + engine implementations |
+| `src/rulebook_wiki/extract/__init__.py` | `BaseEngine` ABC, `@register_engine`, `get_engine()`, `list_engines()` |
+| `src/rulebook_wiki/extract/marker_engine.py` | Marker engine (ML-powered PDF→Markdown) |
+| `src/rulebook_wiki/extract/pymupdf_engine.py` | PyMuPDF engine (deterministic, no ML) |
+| `src/rulebook_wiki/repair/` | Text cleaning and repair |
+| `src/rulebook_wiki/repair/clean_text.py` | Structured extraction + cleaning (columns, headers/footers, hyphens) |
 | `src/rulebook_wiki/emit/` | Markdown/obsidian emission |
 | `src/rulebook_wiki/cache/` | SQLite cache, artifact store, step manifests |
-| `src/rulebook_wiki/extract/` | Future: extraction engine integration (stub) |
-| `src/rulebook_wiki/repair/` | Future: repair and normalization (stub) |
 | `src/rulebook_wiki/llm/` | Future: LLM-backed enrichment (stub) |
-| `src/rulebook_wiki/index/` | Future: global catalog and link graph (stub) |
-| `data/` | Runtime data (cache, artifacts, outputs) |
+| `data/` | Runtime data (cache, artifacts, outputs) — gitignored |
 | `tests/` | Test suite |
-| `docs/` | Documentation |
 
 ---
 
@@ -77,25 +80,38 @@ rulebook-wiki inspect <source_id>       # Show PDF metadata
 rulebook-wiki toc <source_id>           # Extract/display TOC
 rulebook-wiki page-labels <source_id>   # Extract/display page labels
 rulebook-wiki build-section-tree <source_id>  # Build canonical section tree
+rulebook-wiki extract <source_id>        # Extract text content (--engine marker|pymupdf)
 rulebook-wiki emit-skeleton <source_id> # Emit Markdown skeleton
 rulebook-wiki build <source_id>         # Run full pipeline
 ```
 
-Common flags: `--force`, `--force-step <step>`, `--config <path>`, `--output-dir <dir>`, `--cache-dir <dir>`
+Common flags: `--force`, `--force-step <step>`, `--engine <name>`, `--skip-extract`, `--config <path>`, `--output-dir <dir>`, `--cache-dir <dir>`
 
 ---
 
 ## Testing
 
 ```bash
-# Run all tests
+# Run all tests (uses pymupdf engine — fast)
 pytest tests/ -v
 
 # Run a specific test file
-pytest tests/test_section_tree.py -v
+pytest tests/test_extract_text.py -v
 ```
 
-All tests use `tmp_path` fixtures — no persistent state.
+All tests use `tmp_path` fixtures — no persistent state. **Do not use Marker engine in tests** — it requires ~2GB of ML models and takes minutes.
+
+---
+
+## Adding New Extraction Engines
+
+1. Create a new module in `src/rulebook_wiki/extract/` (e.g., `docling_engine.py`)
+2. Subclass `BaseEngine` from `rulebook_wiki.extract`
+3. Use `@register_engine("name")` decorator
+4. Implement `extract_page_range()`, `engine_name`, `engine_version`
+5. Import the module in `src/rulebook_wiki/ingest/extract_text.py` to trigger registration
+6. Update `list_engines()` will automatically include it
+7. Add the engine name to config docs and CLI help text
 
 ---
 

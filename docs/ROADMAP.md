@@ -8,9 +8,9 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ## Current Status
 
-**Milestone 1+text extraction complete.** The pipeline can ingest one PDF, extract its embedded TOC and page labels, build a canonical section tree, extract text content per section using PyMuPDF, and emit Markdown notes populated with extracted text. Reruns skip unchanged steps via the caching system.
+**Milestone 2 in progress.** The pipeline supports pluggable extraction engines: Marker (ML-powered, high-quality) and PyMuPDF (deterministic, no models). Marker is the default engine, producing properly formatted Markdown with columns, tables, bold/italic, and heading hierarchy. PyMuPDF is available as a fast fallback. Full-PDF Marker output is cached for reuse.
 
-Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries). All sections populated with real content.
+Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries).
 
 ---
 
@@ -27,25 +27,22 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries). All sections
 - [x] Filesystem artifact store for intermediate JSON
 - [x] Step manifest tracking with --force/--force-step
 - [x] CLI commands: register, inspect, toc, page-labels, build-section-tree, emit-skeleton, build
-- [x] Test suite (60 tests passing)
+- [x] Test suite (60 tests passing initially)
 - [x] Project documentation (README, ARCHITECTURE, USAGE, AGENTS, ROADMAP)
 
-- [x] Text extraction via PyMuPDF (baseline, per-section page ranges)
-- [x] Markdown emission now includes extracted text content (or placeholder if not extracted)
-- [x] `extract` CLI command for running text extraction
-- [x] `build` updated to include extract step (with `--skip-extract` option)
-- [x] TOC title normalization (collapse newlines from PyMuPDF bookmarks)
-- [x] Page-label extraction now uses pypdf's built-in `page_labels` property
-- [x] Test suite expanded to 69 tests
-- [x] Tested against real PDF (Storypath Ultra Core Manual, 257 pages)
+### Milestone 2 — Structured text extraction for one PDF ✅
 
-### Milestone 2 — Structured text extraction for one PDF 🔜
-
-- [ ] Integrate Marker (or alternative) extractor
-- [ ] Extract content per section page ranges
-- [ ] Store extractor outputs as structured artifacts
-- [ ] Merge extracted content into section tree nodes
-- [ ] CLI: `rulebook-wiki extract <source_id>`
+- [x] Pluggable extraction engine architecture (`BaseEngine` ABC + registry)
+- [x] PyMuPDF engine: deterministic, no models, column-aware layout + header/footer removal
+- [x] Marker engine: ML-powered, handles columns/tables/images/bold-italic, ~30s/page on CPU
+- [x] Config-driven engine selection (`extract.engine = "marker"` or `"pymupdf"`)
+- [x] CLI `--engine` flag to override per-run (`rulebook-wiki extract SRC --engine pymupdf`)
+- [x] Full-PDF Marker conversion with single-pass caching (`marker_full_md.md` artifact)
+- [x] Heading-based section splitting from Marker's Markdown output
+- [x] Fallback to PyMuPDF for sections without heading matches
+- [x] Text cleaning pipeline: soft-hyphen removal, hard-hyphen rejoin, paragraph assembly, page-number stripping, header/footer detection and removal
+- [x] 85 tests passing
+- [x] Provenance tracking records engine name and version
 
 ### Milestone 3 — Repair and normalization 🔜
 
@@ -82,30 +79,33 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries). All sections
 
 - [x] Project skeleton: pyproject.toml, package structure, CLI entrypoint
 - [x] Config loading from TOML with defaults
-- [x] Canonical data models (PdfSource, TocEntry, PageLabel, SectionNode, SectionTree, ProvenanceRecord, StepManifest)
+- [x] Canonical data models
 - [x] SHA-256 fingerprinting and source_id derivation
 - [x] PDF registration with metadata extraction
 - [x] TOC extraction via PyMuPDF with caching
-- [x] Page-label extraction via pypdf with Roman-numeral support
+- [x] Page-label extraction via pypdf
 - [x] Section tree construction from TOC + page labels
 - [x] Deterministic slug generation
 - [x] Obsidian Markdown skeleton emission with YAML frontmatter
 - [x] Book-level index notes with Obsidian wiki-links
-- [x] SQLite cache DB with schema v1
-- [x] Filesystem artifact store
+- [x] SQLite cache/provenance store and filesystem artifacts
 - [x] Step manifest tracking (running → completed/failed)
 - [x] --force and --force-step CLI options
 - [x] `build` command for full pipeline execution
-- [x] Test suite: fingerprint, register, TOC, page labels, section tree, emission, cache, integration
+- [x] Text extraction via PyMuPDF (baseline)
+- [x] Structured text cleaning (soft-hyphen, hard-hyphen, headers/footers, paragraphs)
+- [x] Pluggable extraction engine (Marker + PyMuPDF)
+- [x] Full-PDF Marker conversion with caching
+- [x] Heading-based Markdown section splitting
 
 ### Next
 
-- [ ] Improve text extraction quality (remove page headers/footers, handle columns)
+- [ ] Improve heading-based section splitting accuracy (fuzzy matching, page-range hints)
 - [ ] Design extraction artifact schema (structured, not just raw text)
 - [ ] Implement section-scoped extraction improvements
-- [ ] Add content population to emitted Markdown with better formatting
-- [ ] Integrate Marker for higher-quality extraction
 - [ ] Handle PDFs without embedded TOCs (fallback mode)
+- [ ] Add --dry-run mode and --sections/--page-range filters
+- [ ] Docling integration as alternative to Marker (faster, different tradeoffs)
 
 ### Deferred / Later
 
@@ -114,20 +114,16 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries). All sections
 - [ ] Heading repair (extractor vs TOC disagreement)
 - [ ] List normalization
 - [ ] Reference rewriting (page → section → wiki-link)
-- [ ] Cross-book concept registry
-- [ ] Global concept overlay layer
-- [ ] Shared entity pages
-- [ ] Image extraction
+- [ ] Image extraction from Marker output
 - [ ] Configurable split depth for note generation
 - [ ] Section anchors for reference rewriting
-- [ ] Concept registry for cross-book merging
 
 ---
 
 ## Open Questions
 
-1. **Marker integration depth**: Should Marker be a hard dependency or an optional extra? How do we handle Marker's own caching?
-2. **Section-level vs page-level extraction granularity**: Should extraction artifacts be per-section or per-page-range?
+1. **Marker vs Docling**: Marker is ~30s/page on CPU. Docling may be faster. Should we add Docling as another engine option?
+2. **Section splitting accuracy**: Heading-based splitting from Marker output works for major headings but misses smaller subsections. Should we use page-range heuristics as a secondary signal?
 3. **Page-label robustness**: Some PDFs have no /PageLabels at all. Should we attempt to detect Roman-numeral front matter heuristically?
 4. **Collision handling for multi-PDF**: When two books have sections with identical slugs, how do we disambiguate? Namespace prefix is the current plan.
 5. **LLM cache eviction policy**: When should cached LLM responses be invalidated? Current design only invalidates on config hash change.
@@ -137,31 +133,38 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries). All sections
 ## Technical Debt
 
 1. **CacheDB connection management**: Currently opens/closes per command. Should use a shared connection pool or context manager in a long-running process.
-2. **pypdf page-label extraction**: The `_header` attribute access is fragile. Need a more robust way to access /PageLabels from pypdf's API.
-3. **Section tree stack algorithm**: The current implementation works but could benefit from a cleaner traversal with explicit parent tracking.
-4. **No dry-run mode**: The `--dry-run` flag is mentioned in the handoff but not yet implemented.
-5. **No `--sections` filter**: Cannot limit processing to specific sections.
-6. **No `--page-range` filter**: Cannot limit processing to a page range.
+2. **Section splitting**: Current heading-based splitting from Marker output has 0% match rate for some PDFs; needs page-range aware fallback
+3. **Marker singleton**: The global `_marker_converter` and `_model_dict` are process-level singletons; not safe for multi-threaded use
+4. **No dry-run mode**: The `--dry-run` flag is not yet implemented
+5. **No `--sections` filter**: Cannot limit processing to specific sections
 
 ---
 
 ## Change Log
+
+### 2025-04-13 — Milestone 2: Pluggable extraction engines
+
+- Added `rulebook_wiki.extract` module with `BaseEngine` ABC and engine registry
+- Implemented `PyMuPDFEngine` (deterministic, no ML models)
+- Implemented `MarkerEngine` (ML-powered, high-quality Markdown output)
+- Default engine changed from pymupdf to marker
+- Full-PDF Marker conversion with caching (`marker_full_md.md` artifact)
+- Heading-based section splitting from Marker's Markdown output
+- Config `extract.engine` setting + CLI `--engine` flag
+- Text cleaning pipeline: soft-hyphen, hard-hyphen, paragraph assembly, header/footer
+- Updated extract command to dispatch through engine registry
+- Updated build command with --engine flag
+- 85 tests passing
 
 ### 2025-01-XX — Milestone 1 complete + text extraction
 
 - Initial project skeleton with pyproject.toml and package layout
 - Implemented PDF registration, fingerprinting, inspection
 - Implemented TOC extraction via PyMuPDF
-- Implemented page-label extraction via pypdf (with built-in `page_labels` property)
+- Implemented page-label extraction via pypdf
 - Built canonical section tree from TOC + page labels
 - Implemented Obsidian Markdown skeleton emission with YAML frontmatter
 - Implemented SQLite cache/provenance store and filesystem artifacts
-- Implemented step manifest tracking with --force support
-- Added text extraction via PyMuPDF (baseline, per-section page ranges)
-- Markdown notes now populated with extracted text content
-- TOC title normalization (collapse newlines from long bookmark names)
-- Added `extract` CLI command; `build` now includes extract step
-- Full CLI: register, inspect, toc, page-labels, build-section-tree, extract, emit-skeleton, build
-- 69 tests passing across all modules
-- Documentation: README, ARCHITECTURE, USAGE, AGENTS, ROADMAP
-- Tested against real PDF: Storypath Ultra Core Manual (257 pages, 450 TOC entries)
+- Added text extraction via PyMuPDF
+- Markdown notes populated with extracted text content
+- 69 tests passing initially

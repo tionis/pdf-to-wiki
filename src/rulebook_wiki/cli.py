@@ -114,16 +114,18 @@ def build_section_tree(ctx: click.Context, source_id: str, force: bool) -> None:
 @main.command(name="extract")
 @click.argument("source_id")
 @click.option("--force", is_flag=True, help="Force re-extraction")
+@click.option("--engine", default=None, help="Extraction engine: marker (default) or pymupdf")
 @click.pass_context
-def extract(ctx: click.Context, source_id: str, force: bool) -> None:
+def extract(ctx: click.Context, source_id: str, force: bool, engine: str | None) -> None:
     """Extract text content from the PDF for each section."""
     from rulebook_wiki.ingest.extract_text import extract_text
 
     cfg = ctx.obj["config"]
-    result = extract_text(source_id, cfg, force=force)
+    result = extract_text(source_id, cfg, force=force, engine=engine)
     total_chars = sum(len(t) for t in result.values())
     non_empty = sum(1 for t in result.values() if t.strip())
-    click.echo(f"Extracted text for {source_id}:")
+    engine_used = engine or cfg.extract_engine
+    click.echo(f"Extracted text for {source_id} (engine: {engine_used}):")
     click.echo(f"  Sections with content: {non_empty}/{len(result)}")
     click.echo(f"  Total characters: {total_chars:,}")
 
@@ -150,8 +152,9 @@ def emit_skeleton(ctx: click.Context, source_id: str, force: bool, force_step: s
 @click.option("--force", is_flag=True, help="Force re-run all steps")
 @click.option("--force-step", default=None, help="Force re-run of a specific step")
 @click.option("--skip-extract", is_flag=True, help="Skip text extraction step (emit skeleton only)")
+@click.option("--engine", default=None, help="Extraction engine: marker (default) or pymupdf")
 @click.pass_context
-def build(ctx: click.Context, source_id: str, force: bool, force_step: str | None, skip_extract: bool) -> None:
+def build(ctx: click.Context, source_id: str, force: bool, force_step: str | None, skip_extract: bool, engine: str | None) -> None:
     """Run the full pipeline for a registered PDF source."""
     from rulebook_wiki.ingest.extract_toc import extract_toc
     from rulebook_wiki.ingest.extract_page_labels import extract_page_labels as extract_pl
@@ -185,8 +188,8 @@ def build(ctx: click.Context, source_id: str, force: bool, force_step: str | Non
     build_section_tree(source_id, cfg, force=step_force)
 
     if not skip_extract:
-        click.echo("Step 4/6: Extracting text content...")
-        extract_text(source_id, cfg, force=step_force)
+        click.echo(f"Step 4/6: Extracting text content (engine: {engine or cfg.extract_engine})...")
+        extract_text(source_id, cfg, force=step_force, engine=engine)
     else:
         click.echo("Step 4/6: Skipping text extraction (--skip-extract)")
 

@@ -1,25 +1,32 @@
-"""Text extraction from PDF using PyMuPDF.
+"""Text extraction from PDF — dispatches to pluggable extraction engines.
 
-This is a deterministic extraction engine. It extracts text page-by-page
-for the page ranges defined in the section tree, producing structured
-artifacts that can be merged into the Markdown output.
+The extraction step pulls text content from the PDF for each section's
+page range. The engine used is determined by the ``extract_engine``
+config setting (default: "marker").
 
-PyMuPDF's get_text() is the baseline extractor. Marker or other engines
-can be substituted later via the extract/ subpackage.
+Available engines:
+  - "marker": ML-powered extraction via marker-pdf (high quality,
+    handles columns/tables/images, requires ~2GB model download)
+  - "pymupdf": Deterministic extraction via PyMuPDF dict mode
+    (no models, decent quality, may have column issues)
+
+Results are cached as JSON artifacts. The step is resumable.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import fitz  # PyMuPDF
-
 from rulebook_wiki.cache.artifact_store import ArtifactStore
 from rulebook_wiki.cache.db import CacheDB
 from rulebook_wiki.cache.manifests import StepManifestStore
 from rulebook_wiki.config import WikiConfig
+from rulebook_wiki.extract import get_engine, list_engines
+# Import engines to trigger registration
+import rulebook_wiki.extract.pymupdf_engine  # noqa: F401
+import rulebook_wiki.extract.marker_engine  # noqa: F401
 from rulebook_wiki.logging import get_logger
-from rulebook_wiki.models import ProvenanceRecord, SectionNode, SectionTree
+from rulebook_wiki.models import ProvenanceRecord, SectionTree
 
 logger = get_logger(__name__)
 
@@ -28,14 +35,21 @@ def extract_text(
     source_id: str,
     config: WikiConfig,
     force: bool = False,
+    engine: str | None = None,
 ) -> dict[str, str]:
-    """Extract text from the PDF for each section's page range.
+    """Extract text content from the PDF for each section's page range.
 
-    Uses PyMuPDF's page.get_text() to extract text content for the
-    page ranges defined in the section tree. Results are persisted
-    as JSON artifacts.
+    Uses the configured extraction engine (default: marker).
+    Results are cached as JSON artifacts.
 
-    Returns a dict mapping section_id → extracted text content.
+    Args:
+        source_id: The registered PDF source ID.
+        config: Pipeline configuration.
+        force: Force re-extraction even if cached.
+        engine: Override the configured extraction engine.
+
+    Returns:
+        Dict mapping section_id → extracted text content.
     """
     db = CacheDB(config.resolved_cache_db_path())
     artifacts = ArtifactStore(config.resolved_artifact_dir())
@@ -53,6 +67,19 @@ def extract_text(
             db.close()
             return cached
 
+    # Resolve engine
+    engine_name = engine or config.extract_engine
+    available = list_engines()
+    if engine_name not in available:
+        logger.warning(
+            f"Engine {engine_name!r} not available (available: {', '.join(available)}). "
+            f"Falling back to 'pymupdf'."
+        )
+        engine_name = "pymupdf"
+
+    engine_instance = get_engine(engine_name, config)
+    logger.info(f"Using extraction engine: {engine_instance.engine_name} v{engine_instance.engine_version}")
+
     manifests.mark_running(source_id, "extract_text")
 
     # Load section tree
@@ -61,15 +88,16 @@ def extract_text(
         raise ValueError(f"No section tree for {source_id}. Run 'build-section-tree' first.")
     tree = SectionTree(**tree_data)
 
-    # Extract text per section
-    doc = fitz.open(source.path)
-    extracted: dict[str, str] = {}
-
-    for section_id, node in tree.nodes.items():
-        text = _extract_section_text(doc, node)
-        extracted[section_id] = text
-
-    doc.close()
+    # Extract text per section — strategy varies by engine
+    if engine_name == "marker":
+        extracted = _extract_with_marker(source, tree, engine_instance, config)
+    else:
+        extracted = {}
+        for section_id, node in tree.nodes.items():
+            text = engine_instance.extract_page_range(
+                source.path, node.pdf_page_start, node.pdf_page_end
+            )
+            extracted[section_id] = text
 
     # Persist
     artifacts.save_json(source_id, "extract_text", extracted)
@@ -79,8 +107,8 @@ def extract_text(
         artifact_id=f"{source_id}/extract_text",
         source_id=source_id,
         step="extract_text",
-        tool="pymupdf",
-        tool_version=fitz.version[0],
+        tool=engine_instance.engine_name,
+        tool_version=engine_instance.engine_version,
         config_hash="",
         created_at=now,
     )
@@ -97,46 +125,59 @@ def extract_text(
     return extracted
 
 
-def _extract_section_text(doc: fitz.Document, node: SectionNode) -> str:
-    """Extract text content for a single section from the PDF.
+def _extract_with_marker(source, tree: SectionTree, engine, config: WikiConfig) -> dict[str, str]:
+    """Extract text using Marker with a full-PDF-then-split strategy.
 
-    Extracts text from all pages in the section's page range,
-    joining them with blank line separators. Attempts to
-    preserve paragraph breaks while removing excessive whitespace.
+    Marker's per-call overhead is high (model inference per page), so we:
+
+    1. Convert the entire PDF in a single Marker call
+    2. Cache the raw full-PDF Markdown
+    3. Split the Markdown into per-section content by matching
+       section titles to heading anchors
+
+    This approach is O(N_pages) total rather than O(N_pages * N_sections).
     """
-    parts: list[str] = []
+    from rulebook_wiki.cache.artifact_store import ArtifactStore
+    from rulebook_wiki.extract.marker_engine import MarkerEngine, split_markdown_by_headings
 
-    for page_idx in range(node.pdf_page_start, node.pdf_page_end + 1):
-        if page_idx >= doc.page_count:
-            break
-        page = doc[page_idx]
-        text = page.get_text("text")
-        if text.strip():
-            parts.append(text.strip())
+    assert isinstance(engine, MarkerEngine)
 
-    if not parts:
-        return ""
+    # Check for cached full-PDF Marker output
+    artifacts = ArtifactStore(config.resolved_artifact_dir())
+    full_md = artifacts.load_text(source.source_id, "marker_full_md", suffix=".md")
 
-    # Join pages with double newline, then normalize internal whitespace
-    raw = "\n\n".join(parts)
+    if full_md is None:
+        logger.info("Running Marker full-PDF conversion (one-time, cached after)...")
+        full_md = engine.extract_full_pdf(source.path)
 
-    # Clean up common extraction artifacts:
-    # - Collapse runs of 3+ blank lines into 2
-    # - Strip trailing whitespace from lines
-    lines = raw.split("\n")
-    cleaned_lines: list[str] = []
-    prev_blank = False
+        # Cache the raw markdown for reuse
+        artifacts.save_text(source.source_id, "marker_full_md", full_md, suffix=".md")
+        logger.info(f"Marker full-PDF conversion complete: {len(full_md):,} chars cached")
+    else:
+        logger.info(f"Using cached Marker output: {len(full_md):,} chars")
 
-    for line in lines:
-        stripped = line.rstrip()
-        is_blank = stripped == ""
+    # Build section list for heading matching
+    sections: list[tuple[str, str, int, int]] = []
+    for section_id, node in tree.nodes.items():
+        sections.append((section_id, node.title, node.pdf_page_start, node.pdf_page_end))
 
-        # Skip consecutive blank lines beyond 1 (preserve paragraph breaks)
-        if is_blank and prev_blank:
-            continue
+    # Split the markdown by headings
+    logger.info(f"Splitting Marker output into {len(sections)} sections by headings...")
+    extracted = split_markdown_by_headings(full_md, sections)
 
-        cleaned_lines.append(stripped)
-        prev_blank = is_blank
+    # For sections that didn't get heading-matched text, fall back to
+    # per-page extraction using PyMuPDF (fast, no ML needed)
+    missing = [sid for sid, text in extracted.items() if not text.strip()]
+    if missing:
+        logger.info(
+            f"Sections without heading matches: {len(missing)}, "
+            f"falling back to PyMuPDF for those"
+        )
+        from rulebook_wiki.extract import get_engine
+        pymupdf = get_engine("pymupdf", config)
+        for section_id in missing:
+            node = tree.nodes[section_id]
+            text = pymupdf.extract_page_range(source.path, node.pdf_page_start, node.pdf_page_end)
+            extracted[section_id] = text
 
-    result = "\n".join(cleaned_lines).strip()
-    return result
+    return extracted
