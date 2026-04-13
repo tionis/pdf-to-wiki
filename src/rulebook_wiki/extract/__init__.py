@@ -1,0 +1,1 @@
+"""Stub: future extraction engine integration."""

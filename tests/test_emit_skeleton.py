@@ -1,0 +1,139 @@
+"""Tests for Markdown skeleton emission."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from conftest import create_test_pdf
+
+from rulebook_wiki.config import WikiConfig
+from rulebook_wiki.emit.markdown_writer import emit_skeleton
+from rulebook_wiki.ingest.build_section_tree import build_section_tree
+from rulebook_wiki.ingest.extract_page_labels import extract_page_labels
+from rulebook_wiki.ingest.extract_toc import extract_toc
+from rulebook_wiki.ingest.register_pdf import register_pdf
+
+
+def _run_full_pipeline(pdf_path: str, config: WikiConfig) -> None:
+    """Helper: run the full pipeline up to section-tree build."""
+    from rulebook_wiki.ingest.register_pdf import register_pdf as reg
+    from rulebook_wiki.ingest.extract_toc import extract_toc as toc
+    from rulebook_wiki.ingest.extract_page_labels import extract_page_labels as epl
+    from rulebook_wiki.ingest.build_section_tree import build_section_tree as bst
+
+    source = reg(pdf_path, config)
+    toc(source.source_id, config)
+    epl(source.source_id, config)
+    bst(source.source_id, config)
+
+
+class TestEmitSkeleton:
+    def test_emits_files(self, tmp_path: Path, config: WikiConfig):
+        pdf_path = tmp_path / "book.pdf"
+        toc = [
+            [1, "Chapter 1: Introduction", 1],
+            [2, "Overview", 2],
+            [1, "Chapter 2: Characters", 5],
+        ]
+        create_test_pdf(pdf_path, num_pages=10, toc_entries=toc)
+
+        _run_full_pipeline(str(pdf_path), config)
+        manifest = emit_skeleton("book", config)
+
+        assert len(manifest) == 3
+        # Check that files were actually created
+        output_dir = config.resolved_output_dir()
+        for sid, rel_path in manifest.items():
+            assert (output_dir / rel_path).exists(), f"Missing file: {output_dir / rel_path}"
+
+    def test_frontmatter(self, tmp_path: Path, config: WikiConfig):
+        pdf_path = tmp_path / "book.pdf"
+        toc = [[1, "Chapter 1", 1]]
+        create_test_pdf(pdf_path, num_pages=5, toc_entries=toc)
+
+        _run_full_pipeline(str(pdf_path), config)
+        manifest = emit_skeleton("book", config)
+
+        # Read the emitted file and check frontmatter
+        output_dir = config.resolved_output_dir()
+        ch1_path = list(manifest.values())[0]
+        content = (output_dir / ch1_path).read_text()
+
+        assert "---" in content
+        assert "source_pdf" in content
+        assert "section_id" in content
+        assert "level" in content
+        assert "pdf_page_start" in content
+        assert "pdf_page_end" in content
+        assert "parent_section_id" in content
+
+    def test_deterministic(self, tmp_path: Path, config: WikiConfig):
+        """Running emit twice should produce identical output."""
+        pdf_path = tmp_path / "book.pdf"
+        toc = [
+            [1, "Chapter 1", 1],
+            [1, "Chapter 2", 3],
+        ]
+        create_test_pdf(pdf_path, num_pages=6, toc_entries=toc)
+
+        _run_full_pipeline(str(pdf_path), config)
+        manifest1 = emit_skeleton("book", config)
+
+        # Read content
+        output_dir = config.resolved_output_dir()
+        content1 = {}
+        for sid, path in manifest1.items():
+            content1[sid] = (output_dir / path).read_text()
+
+        # Re-emit with force
+        manifest2 = emit_skeleton("book", config, force=True)
+        content2 = {}
+        for sid, path in manifest2.items():
+            content2[sid] = (output_dir / path).read_text()
+
+        # Same paths and same content
+        assert set(manifest1.keys()) == set(manifest2.keys())
+        for sid in manifest1:
+            assert content1[sid] == content2[sid], f"Content differs for {sid}"
+
+    def test_tree_section_is_leaf(self, tmp_path: Path, config: WikiConfig):
+        """A section without children should become a .md file, not a directory."""
+        pdf_path = tmp_path / "book.pdf"
+        toc = [[1, "Chapter 1", 1]]
+        create_test_pdf(pdf_path, num_pages=5, toc_entries=toc)
+
+        _run_full_pipeline(str(pdf_path), config)
+        manifest = emit_skeleton("book", config)
+
+        # Chapter 1 has no children → it's a leaf → file
+        ch1_id = list(manifest.keys())[0]
+        assert manifest[ch1_id].endswith(".md")
+        assert "/index.md" not in manifest[ch1_id]
+
+    def test_section_with_children(self, tmp_path: Path, config: WikiConfig):
+        """A section with children should emit as a directory with index.md."""
+        pdf_path = tmp_path / "book.pdf"
+        toc = [
+            [1, "Chapter 1", 1],
+            [2, "Section A", 1],
+            [2, "Section B", 3],
+        ]
+        create_test_pdf(pdf_path, num_pages=6, toc_entries=toc)
+
+        _run_full_pipeline(str(pdf_path), config)
+        manifest = emit_skeleton("book", config)
+
+        ch1_id = [sid for sid in manifest if "chapter-1" in sid][0]
+        # Chapter 1 has children → directory with index.md
+        assert "/index.md" in manifest[ch1_id]
+
+    def test_cached_skip(self, tmp_path: Path, config: WikiConfig):
+        """Second call without force should be cached."""
+        pdf_path = tmp_path / "book.pdf"
+        toc = [[1, "Chapter 1", 1]]
+        create_test_pdf(pdf_path, num_pages=5, toc_entries=toc)
+
+        _run_full_pipeline(str(pdf_path), config)
+        manifest1 = emit_skeleton("book", config)
+        manifest2 = emit_skeleton("book", config)
+        assert manifest1 == manifest2

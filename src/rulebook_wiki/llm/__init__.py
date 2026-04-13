@@ -1,0 +1,1 @@
+"""Stub: future LLM-backed enrichment via Ollama."""

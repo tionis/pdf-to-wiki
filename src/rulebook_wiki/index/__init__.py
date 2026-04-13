@@ -1,0 +1,1 @@
+"""Stub: future global catalog and link graph."""

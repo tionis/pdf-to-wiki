@@ -1,0 +1,16 @@
+"""PDF ingestion: registration, fingerprinting, inspection, TOC and page-label extraction."""
+
+from .register_pdf import register_pdf
+from .fingerprint import compute_sha256, derive_source_id
+from .extract_toc import extract_toc
+from .extract_page_labels import extract_page_labels
+from .build_section_tree import build_section_tree
+
+__all__ = [
+    "register_pdf",
+    "compute_sha256",
+    "derive_source_id",
+    "extract_toc",
+    "extract_page_labels",
+    "build_section_tree",
+]
