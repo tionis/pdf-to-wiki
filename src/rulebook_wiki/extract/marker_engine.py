@@ -150,6 +150,27 @@ class MarkerEngine(BaseEngine):
 
         return str(result)
 
+    def extract_full_pdf_with_images(self, pdf_path: str) -> tuple[str, dict]:
+        """Extract text and images from the entire PDF in one Marker pass.
+
+        Returns:
+            Tuple of (markdown_text, images_dict) where images_dict maps
+            filenames to PIL Image objects.
+        """
+        from marker.output import text_from_rendered
+
+        converter = _get_marker_converter()
+        rendered = converter(pdf_path)
+
+        result = text_from_rendered(rendered)
+        if isinstance(result, tuple) and len(result) >= 3:
+            markdown_text, fmt, images_dict = result
+            return markdown_text, images_dict
+        elif isinstance(result, tuple) and len(result) >= 1:
+            return result[0], {}
+
+        return str(result), {}
+
 
 def split_markdown_by_headings(
     markdown: str,
@@ -253,3 +274,94 @@ def _normalize_title(title: str) -> str:
     # Strip trailing punctuation
     t = t.rstrip(".,;:!?")
     return t
+
+
+def save_images(
+    images_dict: dict,
+    source_id: str,
+    output_dir: Path,
+) -> dict[str, str]:
+    """Save Marker's extracted images to the wiki assets directory.
+
+    Args:
+        images_dict: Dict mapping filenames (e.g., '_page_0_Picture_0.jpeg')
+            to PIL Image objects, as returned by Marker.
+        source_id: The PDF source ID for namespacing.
+        output_dir: The wiki output directory (e.g., data/outputs/wiki/).
+
+    Returns:
+        Dict mapping original filename to the relative path where the
+        image was saved (e.g., 'assets/storypath/page_0_picture_0.png').
+    """
+    if not images_dict:
+        return {}
+
+    assets_dir = output_dir / "assets" / source_id
+    assets_dir.mkdir(parents=True, exist_ok=True)
+
+    saved: dict[str, str] = {}
+
+    for original_name, img in images_dict.items():
+        # Clean the filename: remove leading underscore, normalize
+        clean_name = original_name.lstrip("_")
+        # Save as PNG for lossless quality (PIL handles the conversion)
+        base_name = Path(clean_name).stem + ".png"
+        save_path = assets_dir / base_name
+
+        try:
+            img.save(str(save_path), "PNG")
+            # Relative path from the wiki root for use in Markdown
+            rel_path = f"assets/{source_id}/{base_name}"
+            saved[original_name] = rel_path
+            logger.debug(f"Saved image: {save_path}")
+        except Exception as e:
+            logger.warning(f"Failed to save image {original_name}: {e}")
+
+    logger.info(f"Saved {len(saved)} images to {assets_dir}")
+    return saved
+
+
+def rewrite_image_refs(
+    markdown: str,
+    image_map: dict[str, str],
+    source_id: str,
+    output_dir: Path,
+) -> str:
+    """Rewrite Markdown image references to point to saved image files.
+
+    Converts references like ![](_page_0_Picture_0.jpeg) to
+    ![](../assets/source_id/page_0_picture_0.png) with paths
+    relative to the note's location in the wiki.
+
+    Args:
+        markdown: The Markdown text containing image references.
+        image_map: Dict mapping original filename to relative path from wiki root.
+        source_id: The PDF source ID.
+        output_dir: The wiki output directory.
+
+    Returns:
+        Markdown text with rewritten image references.
+    """
+    if not image_map:
+        return markdown
+
+    # Pattern: ![alt](filename) or ![](filename)
+    def _replace_img(m):
+        alt_text = m.group(1) or ""
+        original_ref = m.group(2)
+
+        if original_ref in image_map:
+            new_path = image_map[original_ref]
+            return f"![{alt_text}]({new_path})"
+
+        # Try matching just the filename part
+        ref_basename = original_ref.lstrip("_")
+        for orig_key, new_path in image_map.items():
+            orig_basename = orig_key.lstrip("_")
+            if orig_basename == ref_basename:
+                return f"![{alt_text}]({new_path})"
+
+        # No match — leave as-is
+        return m.group(0)
+
+    return re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", _replace_img, markdown)

@@ -99,6 +99,12 @@ def extract_text(
             )
             extracted[section_id] = text
 
+    # Extract images from PDF and rewrite references
+    image_map = _extract_images(source, config)
+    if image_map:
+        from rulebook_wiki.extract.pdf_images import rewrite_image_refs_in_sections
+        extracted = rewrite_image_refs_in_sections(extracted, image_map)
+
     # Persist
     artifacts.save_json(source_id, "extract_text", extracted)
 
@@ -132,18 +138,22 @@ def _extract_with_marker(source, tree: SectionTree, engine, config: WikiConfig) 
 
     1. Convert the entire PDF in a single Marker call
     2. Cache the raw full-PDF Markdown
-    3. Split the Markdown into per-section content by matching
+    3. Cache the extracted images as PNG files in the artifact store
+    4. Split the Markdown into per-section content by matching
        section titles to heading anchors
+    5. Save images to the wiki output directory and rewrite refs
 
     This approach is O(N_pages) total rather than O(N_pages * N_sections).
     """
+    from pathlib import Path
     from rulebook_wiki.cache.artifact_store import ArtifactStore
     from rulebook_wiki.extract.marker_engine import MarkerEngine, split_markdown_by_headings
 
     assert isinstance(engine, MarkerEngine)
 
-    # Check for cached full-PDF Marker output
     artifacts = ArtifactStore(config.resolved_artifact_dir())
+
+    # Check for cached full-PDF Marker output
     full_md = artifacts.load_text(source.source_id, "marker_full_md", suffix=".md")
 
     if full_md is None:
@@ -181,3 +191,39 @@ def _extract_with_marker(source, tree: SectionTree, engine, config: WikiConfig) 
             extracted[section_id] = text
 
     return extracted
+
+
+def _extract_images(source, config: WikiConfig) -> dict[str, str]:
+    """Extract images from the PDF and save them to the wiki assets dir.
+
+    Uses PyMuPDF to extract images from each page (fast, no ML needed).
+    Returns a dict mapping Marker-style filenames to wiki-root-relative paths.
+    Caches the image map for reuse.
+    """
+    from pathlib import Path
+    from rulebook_wiki.cache.artifact_store import ArtifactStore
+    from rulebook_wiki.extract.pdf_images import extract_pdf_images
+
+    artifacts = ArtifactStore(config.resolved_artifact_dir())
+    output_dir = config.resolved_output_dir()
+
+    # Check for cached image map
+    cached_images = artifacts.load_json(source.source_id, "pdf_images")
+    if cached_images:
+        # Verify all referenced image files still exist
+        all_exist = all(
+            (output_dir / path).exists()
+            for path in cached_images.values()
+        )
+        if all_exist:
+            logger.info(f"Using cached image map: {len(cached_images)} images")
+            return cached_images
+
+    # Extract images from PDF
+    image_map = extract_pdf_images(source.path, source.source_id, output_dir)
+
+    # Cache the mapping
+    if image_map:
+        artifacts.save_json(source.source_id, "pdf_images", image_map)
+
+    return image_map

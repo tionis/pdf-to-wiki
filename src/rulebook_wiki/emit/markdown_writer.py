@@ -86,6 +86,9 @@ def emit_skeleton(
         if section_text and section_text.strip():
             from rulebook_wiki.repair.normalize import repair_text
             section_text = repair_text(section_text, tree, current_note_path=rel_path)
+        # Rewrite wiki-root-relative image refs to note-relative paths
+        if section_text and "assets/" in section_text:
+            section_text = _rewrite_asset_paths(section_text, rel_path, config.books_dir)
         content = _render_note(node, tree, source.path, section_text)
         abs_path.write_text(content, encoding="utf-8")
 
@@ -300,6 +303,49 @@ def _deduplicate_heading(body: str, section_title: str) -> str:
 
     text = "\n".join(result_lines).strip()
     return text if text else body
+
+
+def _rewrite_asset_paths(text: str, note_path: str, books_dir: str) -> str:
+    """Rewrite wiki-root-relative asset paths to note-relative paths.
+
+    Image references like `![](assets/source_id/img.png)` are wiki-root-relative
+    (relative to the books/ directory). But Markdown files are at varying depths
+    like `books/source_id/chapter/section.md`, so the actual relative path
+    needs the right number of `../` prefixes.
+
+    This function calculates the relative path from the note to the
+    assets directory and rewrites all `assets/` references accordingly.
+    """
+    import re
+    from pathlib import PurePosixPath
+
+    # Compute depth: how many directories deep is this note?
+    # e.g., books/source_id/chapter/section.md → 2 levels deep
+    #       books/source_id/index.md → 1 level deep
+    note = PurePosixPath(note_path)
+    # Depth relative to books_dir (e.g., 2 for books/src/chapter/sec.md)
+    books_prefix = PurePosixPath(books_dir)
+    try:
+        relative = note.relative_to(books_prefix)
+        depth = len(relative.parent.parts)  # 0 if in books dir root
+    except ValueError:
+        depth = len(note.parent.parts)
+
+    # The prefix to go from note to wiki root
+    if depth == 0:
+        prefix = "./"
+    else:
+        prefix = "../" * depth
+
+    def _replace(m):
+        alt_text = m.group(1)
+        img_path = m.group(2)
+        # Only rewrite wiki-root-relative paths
+        if img_path.startswith("assets/"):
+            return f"![{alt_text}]({prefix}{img_path})"
+        return m.group(0)
+
+    return re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", _replace, text)
 
 
 def _emit_book_index(
