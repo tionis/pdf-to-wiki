@@ -101,6 +101,9 @@ def emit_skeleton(
     # Save updated tree (with output paths)
     artifacts.save_json(source_id, "section_tree", tree.model_dump())
 
+    # Remove stale files from previous emission
+    _cleanup_stale_files(source_id, emit_manifest, artifacts, output_dir, config)
+
     # Save emit manifest
     artifacts.save_json(source_id, "emit_manifest", emit_manifest)
 
@@ -124,6 +127,57 @@ def emit_skeleton(
     logger.info(f"Emitted {len(emit_manifest)} Markdown notes for {source_id}")
     db.close()
     return emit_manifest
+
+
+def _cleanup_stale_files(
+    source_id: str,
+    new_manifest: dict[str, str],
+    artifacts: "ArtifactStore",
+    output_dir: Path,
+    config: WikiConfig,
+) -> None:
+    """Remove files from a previous emission that are no longer in the manifest.
+
+    Compares the new manifest against the previously saved one and
+    deletes any files that existed before but are not in the current
+    manifest. This handles cases where sections were renamed, merged,
+    or removed from the section tree between runs.
+
+    Also removes empty directories left behind after file deletion.
+    """
+    old_manifest = artifacts.load_json(source_id, "emit_manifest")
+    if old_manifest is None:
+        logger.debug("No previous manifest found, skipping stale file cleanup")
+        return
+
+    old_paths = set(old_manifest.values())
+    new_paths = set(new_manifest.values())
+    stale_paths = old_paths - new_paths
+
+    if not stale_paths:
+        logger.debug("No stale files to clean up")
+        return
+
+    removed = 0
+    for rel_path in sorted(stale_paths):
+        abs_path = output_dir / rel_path
+        if abs_path.exists():
+            abs_path.unlink()
+            removed += 1
+            logger.debug(f"Removed stale file: {rel_path}")
+            # If this was an index.md, also check for empty parent directory
+            if rel_path.endswith("/index.md"):
+                parent = abs_path.parent
+                try:
+                    parent.rmdir()  # Only removes if empty
+                    logger.debug(f"Removed empty directory: {parent}")
+                except OSError:
+                    pass  # Directory not empty, leave it
+        else:
+            logger.debug(f"Stale file already gone: {rel_path}")
+
+    if removed:
+        logger.info(f"Cleaned up {removed} stale file{'s' if removed != 1 else ''} from previous emission")
 
 
 def _render_note(node: SectionNode, tree: SectionTree, source_pdf_path: str, extracted_text: str = "") -> str:

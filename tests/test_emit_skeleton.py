@@ -137,3 +137,45 @@ class TestEmitSkeleton:
         manifest1 = emit_skeleton("book", config)
         manifest2 = emit_skeleton("book", config)
         assert manifest1 == manifest2
+
+    def test_stale_file_cleanup(self, tmp_path: Path, config: WikiConfig):
+        """Changing the section tree and re-emitting should remove old files."""
+        # Start with a simple TOC
+        pdf_path = tmp_path / "book.pdf"
+        toc_v1 = [
+            [1, "Chapter 1", 1],
+            [2, "Section A", 1],
+            [2, "Section B", 3],
+            [1, "Chapter 2", 5],
+        ]
+        create_test_pdf(pdf_path, num_pages=10, toc_entries=toc_v1)
+        _run_full_pipeline(str(pdf_path), config)
+        manifest1 = emit_skeleton("book", config)
+
+        output_dir = config.resolved_output_dir()
+        # Verify section-b exists
+        sec_b_path = [p for sid, p in manifest1.items() if "section-b" in sid]
+        assert len(sec_b_path) == 1
+        sec_b_file = output_dir / sec_b_path[0]
+        assert sec_b_file.exists()
+
+        # Now re-register with a different TOC that removes Section B
+        toc_v2 = [
+            [1, "Chapter 1", 1],
+            [2, "Section A", 1],
+            [1, "Chapter 2", 5],
+        ]
+        create_test_pdf(pdf_path, num_pages=10, toc_entries=toc_v2)
+        # Force re-register and re-build (same source_id, new PDF content)
+        from rulebook_wiki.ingest.register_pdf import register_pdf as reg
+        from rulebook_wiki.ingest.extract_toc import extract_toc as toc
+        from rulebook_wiki.ingest.extract_page_labels import extract_page_labels as epl
+        from rulebook_wiki.ingest.build_section_tree import build_section_tree as bst
+        source = reg(str(pdf_path), config)  # Re-register (updates SHA)
+        toc(source.source_id, config, force=True)  # Force re-extract TOC
+        epl(source.source_id, config, force=True)
+        bst(source.source_id, config, force=True)  # Force rebuild tree
+        manifest2 = emit_skeleton("book", config, force=True)
+
+        # Section B should have been cleaned up
+        assert not sec_b_file.exists(), f"Stale file should be removed: {sec_b_file}"
