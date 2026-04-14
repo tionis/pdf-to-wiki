@@ -1,14 +1,14 @@
 # Roadmap
 
-Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structured Obsidian Markdown wiki, preserving full traceability from generated Markdown back to source PDF pages.
+Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structured Obsidian-compatible Markdown wiki, preserving full traceability from generated Markdown back to source PDF pages.
 
 ---
 
 ## Current Status
 
-**Milestone 4 complete.** The pipeline processes full rulebook PDFs through TOC extraction, section tree construction, text extraction (Marker or PyMuPDF), repair/normalization, and Obsidian Markdown emission. Multiple PDFs can be ingested into a shared wiki with proper namespacing. Pages references are resolved to wiki-links. Dingbats font characters (e.g., FantasyRPGDings `Y` → `•`) are correctly remapped. TTRPG dot ratings (`•`, `••`, `•••`) are preserved in output.
+**Milestone 5 in progress.** The pipeline processes full rulebook PDFs through TOC extraction, section tree construction, text extraction (Marker or PyMuPDF), repair/normalization, and Markdown emission. Tables are preserved via Marker's native Markdown table output. Multiple PDFs can be ingested into a shared wiki with proper namespacing. Internal links use standard Markdown relative links (`[Title](../path/to/section.md)`) for broad compatibility. Dingbats font characters (e.g., FantasyRPGDings `Y` → `•`) are remapped. TTRPG dot ratings (`•`, `••`, `•••`) are preserved. Marker page-anchor spans are stripped.
 
-Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections populated).
+Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections, 9 tables).
 
 ---
 
@@ -20,7 +20,7 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections 
 - [x] TOC extraction via PyMuPDF
 - [x] Page-label extraction via pypdf
 - [x] Canonical section tree data structures and persistence
-- [x] Deterministic Obsidian Markdown skeleton emission
+- [x] Deterministic Markdown skeleton emission with YAML frontmatter
 - [x] SQLite cache/provenance store
 - [x] Filesystem artifact store for intermediate JSON
 - [x] Step manifest tracking with --force/--force-step
@@ -46,17 +46,18 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections 
 
 - [x] OCR word-break repair (suffix-based heuristic + specific English word pairs)
 - [x] Exclusion list for false-positive preventions ("much less" not joined)
-- [x] Bullet list normalization (•, ◦, ▪ → Markdown `-`; dot ratings `••` preserved)
+- [x] Bullet list normalization (•, ◦, ▪ → Markdown `-`; dot ratings `••` preserved as `- •`)
 - [x] Dingbats font mapping (FantasyRPGDings `Y` → `•`, ZapfDingbats, Symbol)
 - [x] Whitespace normalization (collapse excessive blank lines, strip trailing)
 - [x] Page reference annotation (`p. 43` → `{{page-ref:43}}`)
-- [x] Page reference rewriting (`{{page-ref:43}}` → `[[source_id/chapter/section|Section Title]]`)
+- [x] Page reference rewriting to Markdown relative links (`[Title](../path/section.md)`)
 - [x] Cross-book page reference resolution (search other section trees when current tree doesn't match)
-- [x] Duplicate heading deduplication (Marker heading vs emitted H1)
+- [x] Duplicate heading deduplication (leading and mid-content headings matching section title)
+- [x] Marker artifact cleanup (page-anchor `<span>` tags stripped)
 - [x] `repair` CLI command (re-emits with repair applied)
-- [x] 112 tests passing
+- [x] 115 tests passing
 - [ ] OCR fallback for problematic pages (optional)
-- [ ] Preserve tables and images where possible
+- [ ] Preserve images from Marker output
 - [ ] LLM-assisted structural disambiguation (cached, optional)
 
 ### Milestone 4 — Multi-PDF wiki ingestion ✅
@@ -65,15 +66,18 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections 
 - [x] Namespace PDFs under `books/<source_id>/` directory structure
 - [x] Collision avoidance via source_id namespacing (section IDs are `source_id/chapter/section`)
 - [x] Global top-level wiki index (`books/index.md`) linking to all registered books
-- [x] Per-book index note with chapter links
+- [x] Per-book index note with relative Markdown links to chapters
 - [x] Per-source provenance preservation in cache DB
 - [x] CLI: `rulebook-wiki build-all` (builds all registered PDFs + global index)
 - [ ] Configurable output structure (flat vs. nested per book)
 
 ### Milestone 5 — Cross-book linking and semantic enrichment 🔜
 
-- [x] Intra-book reference rewriting (page → section → wiki-link)
+- [x] Intra-book reference rewriting (page → section → Markdown relative link)
 - [x] Cross-book page reference resolution (all_trees parameter)
+- [x] Standard Markdown relative links (not Obsidian wiki-links) for broad compatibility
+- [x] Table preservation via Marker's native Markdown table output
+- [x] Duplicate heading merge in Marker's section splitting
 - [ ] Aliases and glossary extraction (game-specific terms auto-detected)
 - [ ] Entity pages (spells, conditions, skills) as auto-generated stubs
 - [ ] Global search index (Obsidian-compatible)
@@ -94,8 +98,8 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections 
 - [x] Page-label extraction via pypdf
 - [x] Section tree construction from TOC + page labels
 - [x] Deterministic slug generation (strip parentheses/brackets)
-- [x] Obsidian Markdown skeleton emission with YAML frontmatter
-- [x] Book-level index notes with Obsidian wiki-links
+- [x] Markdown skeleton emission with YAML frontmatter
+- [x] Book-level index notes with relative Markdown links to chapters
 - [x] Global wiki index linking all registered books
 - [x] SQLite cache/provenance store and filesystem artifacts
 - [x] Step manifest tracking (running → completed/failed)
@@ -109,12 +113,14 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections 
 - [x] Dingbats/font-aware character remapping during extraction
 - [x] Pluggable extraction engine (Marker + PyMuPDF)
 - [x] Full-PDF Marker conversion with caching
-- [x] Heading-based Markdown section splitting
+- [x] Heading-based Markdown section splitting with duplicate-heading merge
 - [x] OCR word-break repair pipeline
 - [x] Bullet normalization with TTRPG dot-rating preservation
-- [x] Page reference annotation and wiki-link rewriting
+- [x] Page reference annotation and rewriting to Markdown relative links
 - [x] Section tree namespace layout (books/<source_id>/chapter/...)
-- [x] 112 tests passing
+- [x] Table preservation via Marker's native Markdown table output
+- [x] Marker page-anchor span cleanup
+- [x] 115 tests passing
 
 ### Next
 
@@ -125,13 +131,13 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections 
 - [ ] Docling integration as alternative to Marker (faster, different tradeoffs)
 - [ ] Alias/glossary extraction from bold/italic game terms in body text
 - [ ] Entity page generation (auto-stubs for spells, conditions, skills)
+- [ ] Image extraction from Marker output
 
 ### Deferred / Later
 
 - [ ] OCR fallback via OCRmyPDF
 - [ ] Font/encoding diagnostics beyond known dingbats fonts
 - [ ] Heading repair (extractor vs TOC disagreement)
-- [ ] Image extraction from Marker output
 - [ ] Configurable split depth for note generation
 - [ ] Section anchors for reference rewriting
 - [ ] Obsidian search index generation
@@ -145,6 +151,7 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections 
 3. **Page-label robustness**: Some PDFs have no /PageLabels at all. Should we attempt to detect Roman-numeral front matter heuristically?
 4. **LLM cache eviction policy**: When should cached LLM responses be invalidated? Current design only invalidates on config hash change.
 5. **Entity extraction approach**: Should we detect game terms via bold/italic patterns, or use an LLM to identify entities? Bold/italic is fast and deterministic; LLM gives richer results but is slow and non-deterministic.
+6. **PyMuPDF table extraction**: `page.find_tables()` can detect tables but produces split-column artifacts. Marker handles tables natively. Should we wire in PyMuPDF table extraction as fallback for when Marker isn't available?
 
 ---
 
@@ -154,20 +161,34 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections 
 2. **Marker singleton**: The global `_marker_converter` and `_model_dict` are process-level singletons; not safe for multi-threaded use.
 3. **No dry-run mode**: The `--dry-run` flag is not yet implemented.
 4. **No `--sections` filter**: Cannot limit processing to specific sections.
-5. **Old output cleanup**: `emit-skeleton --force` re-emits but doesn't remove stale files from previous runs (e.g., when sections are renamed or removed from the tree).
+5. **Old output cleanup**: `emit-skeleton --force` re-emits but doesn't remove stale files from previous runs (e.g., when sections are renamed or removed).
+6. **table_extract.py not wired**: PyMuPDF table detection module exists but isn't integrated into the extraction pipeline; Marker handles tables natively.
 
 ---
 
 ## Change Log
 
+### 2025-04-15 — Tables, Markdown links, heading deduplication
+
+- Switch from Obsidian `[[wiki-links]]` to standard `[Title](relative/path.md)` Markdown
+  relative links for broad compatibility (GitHub, GitLab, VS Code, commonmark)
+- Add `relative_markdown_link()` utility for computing relative paths between notes
+- Marker heading split: merge consecutive same-title headings (fixes table sections)
+  where Marker emits `# Title` above a table then `# Title` above body text
+- Enhance `_deduplicate_heading()` to strip ALL headings matching section title,
+  not just the first (handles PDFs with same heading above table and body text)
+- Clean Marker page-anchor spans (`<span id="page-N-M"></span>`) from output
+- Add `clean_marker_artifacts()` to repair pipeline
+- 115 tests passing
+
 ### 2025-04-14 — Milestone 4: Multi-PDF wiki ingestion + Milestone 3 completion
 
 - Rewired section path generation to nest chapters under `books/<source_id>/`
-- Wiki-links now include source_id namespace: `[[source_id/chapter/section|Title]]`
+- Wiki-links now include source_id namespace for cross-book linking
 - Added `build-all` CLI command for batch processing all registered PDFs
 - Added global wiki index (`books/index.md`) with book listing and chapter counts
 - Added per-book index note with chapter links
-- Page reference rewriting now resolves across multiple section trees (cross-book)
+- Page reference rewriting resolves across multiple section trees (cross-book)
 - Dingbats font mapping: FantasyRPGDings `Y` → `•`, ZapfDingbats, Symbol
 - Bullet normalizer preserves TTRPG dot ratings: `••` → `- •`, `•••` → `- ••`
 - Expanded OCR word-break repair: forward, element, character, characters
