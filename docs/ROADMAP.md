@@ -78,6 +78,8 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections,
 - [x] Standard Markdown relative links (not Obsidian wiki-links) for broad compatibility
 - [x] Table preservation via Marker's native Markdown table output
 - [x] Duplicate heading merge in Marker's section splitting
+- [x] Image extraction from PDF and saving to wiki assets directory
+- [x] Marker artifact cleanup (page-anchor spans stripped)
 - [ ] Aliases and glossary extraction (game-specific terms auto-detected)
 - [ ] Entity pages (spells, conditions, skills) as auto-generated stubs
 - [ ] LLM-assisted enrichment (cached, optional)
@@ -119,6 +121,8 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections,
 - [x] Section tree namespace layout (books/<source_id>/chapter/...)
 - [x] Table preservation via Marker's native Markdown table output
 - [x] Marker page-anchor span cleanup
+- [x] Image extraction from PDF and saving to wiki assets directory
+- [x] Image reference rewriting (Marker refs → relative paths, fallback matching)
 - [x] 115 tests passing
 
 ### Next
@@ -130,7 +134,6 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections,
 - [ ] Docling integration as alternative to Marker (faster, different tradeoffs)
 - [ ] Alias/glossary extraction from bold/italic game terms in body text
 - [ ] Entity page generation (auto-stubs for spells, conditions, skills)
-- [ ] Image extraction from Marker output
 
 ### Deferred / Later
 
@@ -166,6 +169,19 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections,
 ---
 
 ## Change Log
+
+### 2025-04-16 — Image extraction and preservation
+
+- Extract images from PDF pages using PyMuPDF (94 unique images, 86MB)
+- Save images as PNG to wiki assets directory (assets/<source_id>/)
+- Rewrite Marker image references (![_page_N_Picture_X.jpeg]) to
+  note-relative paths (../assets/source_id/page_N_picture_X.png)
+- Deduplicate images by content hash across pages
+- Fallback matching for Marker page indices that don't align with PyMuPDF
+- Add MarkerEngine.extract_full_pdf_with_images() for future use
+- Add pdf_images.py module for image extraction and reference rewriting
+- Add _rewrite_asset_paths() to markdown_writer for note-relative paths
+- 40/40 image references resolved in Storypath book output
 
 ### 2025-04-15 — Tables, Markdown links, heading deduplication
 
