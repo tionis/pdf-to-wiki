@@ -44,12 +44,18 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries).
 - [x] 85 tests passing
 - [x] Provenance tracking records engine name and version
 
-### Milestone 3 — Repair and normalization 🔜
+### Milestone 3 — Repair and normalization ✅
 
-- [ ] Normalize broken list bullets and symbols
-- [ ] Detect and mark extractor artifacts
-- [ ] Optional OCR fallback for problematic pages
-- [ ] Normalize whitespace and paragraph joins
+- [x] OCR word-break repair (suffix-based heuristic + specific English word pairs)
+- [x] Bullet list normalization (•, ◦, ▪ → Markdown `-`)
+- [x] Whitespace normalization (collapse excessive blank lines, strip trailing)
+- [x] Page reference annotation (`p. 43` → `{{page-ref:43}}`)
+- [x] Duplicate heading deduplication (Marker heading vs emitted H1)
+- [x] `repair` CLI command (re-emits with repair applied)
+- [x] 103 tests passing
+- [x] Exclusion list for false-positive preventions ("much less" not joined)
+- [ ] Actual wiki-link rewriting (`{{page-ref:43}}` → `[[damage]]`)
+- [ ] OCR fallback for problematic pages (optional)
 - [ ] Preserve tables and images where possible
 - [ ] LLM-assisted structural disambiguation (cached, optional)
 

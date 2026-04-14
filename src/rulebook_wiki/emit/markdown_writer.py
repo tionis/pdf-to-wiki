@@ -82,6 +82,10 @@ def emit_skeleton(
         abs_path.parent.mkdir(parents=True, exist_ok=True)
 
         section_text = extracted_text.get(section_id, "") if extracted_text else ""
+        # Apply repair/normalization to extracted text
+        if section_text and section_text.strip():
+            from rulebook_wiki.repair.normalize import repair_text
+            section_text = repair_text(section_text)
         content = _render_note(node, tree, source.path, section_text)
         abs_path.write_text(content, encoding="utf-8")
 
@@ -156,10 +160,63 @@ def _render_note(node: SectionNode, tree: SectionTree, source_pdf_path: str, ext
     # Body: use extracted text or placeholder
     if extracted_text and extracted_text.strip():
         body = extracted_text.strip()
+        # Deduplicate: if the extracted text starts with a heading that
+        # matches the section title, remove the duplicate heading.
+        # Marker often produces "# *Damage*" when our heading is "# Damage".
+        body = _deduplicate_heading(body, node.title)
     else:
         body = "> Content extraction not yet populated."
 
     return f"{fm_block}\n\n{heading}\n\n{body}\n"
+
+
+def _deduplicate_heading(body: str, section_title: str) -> str:
+    """Remove a leading heading from body text if it duplicates the section title.
+
+    When Marker extracts a section, its Markdown often begins with a heading
+    like '# *Damage*' while our emitted heading is '# Damage'. This produces
+    duplicate headings. We strip the Marker heading if it matches.
+    """
+    import re
+
+    # Normalize: strip Markdown formatting chars for comparison
+    title_clean = re.sub(r"[*_`\[\]()#]", "", section_title).strip().lower()
+
+    # Check if the first non-blank line is a heading
+    lines = body.split("\n")
+    first_content_idx = 0
+    while first_content_idx < len(lines) and not lines[first_content_idx].strip():
+        first_content_idx += 1
+
+    if first_content_idx >= len(lines):
+        return body
+
+    first_line = lines[first_content_idx]
+    m = re.match(r"^(#{1,6})\s+(.+)$", first_line)
+    if not m:
+        return body
+
+    heading_text = re.sub(r"[*_`\[\]()]", "", m.group(2)).strip().lower()
+
+    # Check match: exact, prefix, or substring (with minimum length)
+    is_match = (
+        heading_text == title_clean
+        or heading_text.startswith(title_clean)
+        or title_clean.startswith(heading_text)
+    )
+    # Also check if one contains the other with decent overlap
+    if not is_match and len(title_clean) >= 4 and len(heading_text) >= 4:
+        if title_clean in heading_text or heading_text in title_clean:
+            is_match = True
+
+    if is_match:
+        # Remove the heading line and any blank line after it
+        end_idx = first_content_idx + 1
+        while end_idx < len(lines) and not lines[end_idx].strip():
+            end_idx += 1
+        return "\n".join(lines[end_idx:]).strip()
+
+    return body
 
 
 def _emit_book_index(

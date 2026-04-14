@@ -147,6 +147,19 @@ def emit_skeleton(ctx: click.Context, source_id: str, force: bool, force_step: s
         click.echo(f"  {sid} → {path}")
 
 
+@main.command(name="repair")
+@click.argument("source_id")
+@click.option("--force", is_flag=True, help="Force re-emission with repair")
+@click.pass_context
+def repair(ctx: click.Context, source_id: str, force: bool) -> None:
+    """Re-emit Markdown with repair/normalization applied."""
+    from rulebook_wiki.emit.markdown_writer import emit_skeleton
+
+    cfg = ctx.obj["config"]
+    manifest = emit_skeleton(source_id, cfg, force=True)
+    click.echo(f"Repaired and re-emitted {len(manifest)} notes for {source_id}")
+
+
 @main.command(name="build")
 @click.argument("source_id")
 @click.option("--force", is_flag=True, help="Force re-run all steps")
