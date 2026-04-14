@@ -180,7 +180,220 @@ def _construct_tree(
     # Compute page ranges
     _compute_page_ranges(nodes, ordered_sections, page_count, label_map)
 
-    return SectionTree(source_id=source_id, nodes=nodes, root_ids=root_ids)
+    # Detect and unwrap single-root pattern where the root's slug
+    # matches the source_id (common when PDF title matches filename)
+    tree = SectionTree(source_id=source_id, nodes=nodes, root_ids=root_ids)
+    tree = _unwrap_single_root(tree)
+
+    return tree
+
+
+def _unwrap_single_root(tree: SectionTree) -> SectionTree:
+    """Detect and unwrap a single-root pattern where the root slug matches source_id.
+
+    When a PDF has a single L1 TOC entry whose title slugifies to the same
+    string as the source_id (derived from the filename), the result is
+    redundant nesting like:
+
+        books/chronicles-of-darkness/chronicles-of-darkness/chronicles-of-darkness/...
+
+    This pattern is common when the PDF's top-level bookmark is the
+    book title. Instead of nesting the book's content under a wrapper
+    whose name duplicates the source_id, we promote the wrapper's
+    children to be direct children of the source_id directory.
+
+    After unwrapping:
+        books/chronicles-of-darkness/introduction/...
+        books/chronicles-of-darkness/apt-3b.md
+        ...
+
+    The wrapper node itself becomes the book-level index.
+
+    Only unwraps when there is exactly one root AND its slug matches
+    the source_id (with some fuzzy matching for hyphen/space differences).
+    """
+    if len(tree.root_ids) != 1:
+        return tree
+
+    root_id = tree.root_ids[0]
+    root = tree.nodes[root_id]
+
+    # Check if root slug matches source_id (fuzzy: allow minor differences)
+    root_slug = root.slug.lower().replace("-", " ")
+    source_slug = tree.source_id.lower().replace("-", " ")
+
+    if root_slug != source_slug:
+        return tree  # Not a matching single-root pattern
+
+    logger.info(
+        f"Unwrapping single root '{root.title}' (slug='{root.slug}' matches "
+        f"source_id='{tree.source_id}'). Promoting {len(root.children)} children."
+    )
+
+    # Promote the wrapper's children to be direct children of the source_id
+    # by removing the wrapper node from the ID chain.
+    #
+    # Before: source_id/wrapper_slug/child_slug  →  source_id/child_slug
+    # After:  source_id/child_slug
+    #
+    # Additionally, if any promoted child has the same slug as source_id,
+    # deduplicate its slug to avoid redundant nesting like:
+    #   books/chronicles-of-darkness/chronicles-of-darkness/...
+    # The conflicting slug gets a disambiguating suffix.
+    new_nodes: dict[str, SectionNode] = {}
+    new_root_ids: list[str] = []
+
+    def _remap_node(node: SectionNode, new_parent_id: str | None, depth_offset: int, new_slug: str | None = None) -> SectionNode:
+        """Rebuild a node with new section_id and parent_id."""
+        old_id = node.section_id
+        wrapper_prefix = f"{tree.source_id}/{root.slug}/"
+        slug = new_slug if new_slug is not None else node.slug
+
+        if old_id.startswith(wrapper_prefix):
+            rest = old_id[len(wrapper_prefix):]
+            # If we're replacing the first slug component (new_slug given),
+            # replace it in the rest of the path
+            if new_slug is not None and rest.startswith(node.slug + "/"):
+                rest = new_slug + rest[len(node.slug):]
+            elif new_slug is not None and rest == node.slug:
+                rest = new_slug
+            new_id = tree.source_id + "/" + rest
+        elif old_id == root_id:
+            return None
+        else:
+            new_id = old_id
+
+        new_node = SectionNode(
+            section_id=new_id,
+            source_id=node.source_id,
+            title=node.title,
+            slug=slug,
+            level=node.level + depth_offset,
+            parent_id=new_parent_id,
+            children=[],
+            pdf_page_start=node.pdf_page_start,
+            pdf_page_end=node.pdf_page_end,
+            printed_page_start=node.printed_page_start,
+            printed_page_end=node.printed_page_end,
+        )
+        return new_node
+
+    # Process the wrapper's children — they become roots
+    slug_dedup: dict[str, str] = {}  # old_slug -> new_slug for collisions
+    for child_id in root.children:
+        child = tree.nodes[child_id]
+        # Deduplicate: if child's slug matches source_id, rename it
+        new_slug = child.slug
+        if child.slug.lower().replace("-", " ") == source_slug:
+            # Try disambiguating by appending a suffix from the title
+            # e.g., "Chronicles of Darkness" -> "chronicles-of-darkness-core-rules"
+            new_slug = _dedup_slug(child.slug, child.title, tree.source_id)
+            slug_dedup[child.slug] = new_slug
+            logger.info(
+                f"Deduplicating slug: '{child.slug}' -> '{new_slug}' "
+                f"(collides with source_id '{tree.source_id}')"
+            )
+
+        new_child = _remap_node(child, None, -1, new_slug=new_slug if new_slug != child.slug else None)
+        if new_child is None:
+            continue
+        new_nodes[new_child.section_id] = new_child
+        new_root_ids.append(new_child.section_id)
+
+        # Recursively remap the child's entire subtree
+        _remap_subtree(child_id, tree, new_nodes, -1, slug_dedup=slug_dedup)
+
+    return SectionTree(
+        source_id=tree.source_id,
+        nodes=new_nodes,
+        root_ids=new_root_ids,
+    )
+
+
+def _remap_subtree(
+    parent_old_id: str,
+    tree: SectionTree,
+    new_nodes: dict[str, SectionNode],
+    depth_offset: int,
+    slug_dedup: dict[str, str] | None = None,
+) -> None:
+    """Recursively remap all descendants of a node."""
+    parent = tree.nodes[parent_old_id]
+    parent_new_id = _compute_new_id(parent_old_id, tree, slug_dedup=slug_dedup)
+
+    new_children = []
+    for child_id in parent.children:
+        child = tree.nodes[child_id]
+        new_child_id = _compute_new_id(child_id, tree, slug_dedup=slug_dedup)
+
+        new_node = SectionNode(
+            section_id=new_child_id,
+            source_id=child.source_id,
+            title=child.title,
+            slug=child.slug,
+            level=child.level + depth_offset,
+            parent_id=parent_new_id,
+            children=[],
+            pdf_page_start=child.pdf_page_start,
+            pdf_page_end=child.pdf_page_end,
+            printed_page_start=child.printed_page_start,
+            printed_page_end=child.printed_page_end,
+        )
+        new_nodes[new_child_id] = new_node
+        new_children.append(new_child_id)
+
+        # Recurse into grandchildren
+        if child.children:
+            _remap_subtree(child_id, tree, new_nodes, depth_offset, slug_dedup=slug_dedup)
+
+    # Update parent's children list
+    if parent_new_id in new_nodes:
+        new_nodes[parent_new_id] = new_nodes[parent_new_id].model_copy(
+            update={"children": new_children}
+        )
+
+
+def _compute_new_id(old_id: str, tree: SectionTree, slug_dedup: dict[str, str] | None = None) -> str:
+    """Compute a new section_id by removing the wrapper prefix."""
+    root = tree.nodes[tree.root_ids[0]]
+    wrapper_prefix = f"{tree.source_id}/{root.slug}/"
+    if old_id.startswith(wrapper_prefix):
+        rest = old_id[len(wrapper_prefix):]
+        # Apply slug deduplication if provided
+        if slug_dedup:
+            for old_slug, new_slug in slug_dedup.items():
+                if rest.startswith(old_slug + "/"):
+                    rest = new_slug + rest[len(old_slug):]
+                    break
+                elif rest == old_slug:
+                    rest = new_slug
+                    break
+        return tree.source_id + "/" + rest
+    return old_id
+
+
+def _dedup_slug(original_slug: str, title: str, source_id: str) -> str:
+    """Create a disambiguated slug when it collides with the source_id.
+
+    Tries suffixes derived from the title until we get a unique slug.
+    E.g., 'chronicles-of-darkness' (title: 'Chronicles of Darkness')
+    -> 'chronicles-of-darkness-rules'
+    """
+    # Try adding meaningful words from the title
+    title_words = title.lower().replace("-", " ").split()
+    # Skip the words that are already in the slug
+    slug_words = set(original_slug.lower().split("-"))
+    suffix_candidates = [w for w in title_words if w not in slug_words and len(w) > 2]
+    # Also try generic disambiguators
+    suffix_candidates.extend(["rules", "content", "main"])
+
+    for suffix in suffix_candidates:
+        candidate = f"{original_slug}-{suffix}"
+        if candidate != source_id:
+            return candidate
+
+    # Fallback: just append a number
+    return f"{original_slug}-1"
 
 
 def _compute_page_ranges(
