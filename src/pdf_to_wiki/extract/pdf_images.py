@@ -28,6 +28,7 @@ def extract_pdf_images(
     pdf_path: str,
     source_id: str,
     output_dir: Path,
+    books_dir: str = "books",
 ) -> dict[str, str]:
     """Extract images from a PDF and save them to the wiki assets directory.
 
@@ -35,16 +36,20 @@ def extract_pdf_images(
     The filenames are derived from Marker's naming convention
     (_page_N_Picture_X.jpeg) and matched by page position.
 
+    Images are saved in books/source_id/.assets/ (hidden directory)
+    alongside the book's Markdown files.
+
     Args:
         pdf_path: Path to the PDF file.
         source_id: The PDF source ID for namespacing.
         output_dir: The wiki output directory.
+        books_dir: The books directory name (default 'books').
 
     Returns:
         Dict mapping Marker-style filenames (e.g., '_page_0_Picture_0.jpeg')
         to relative paths from the wiki root (e.g., 'assets/source_id/page_0_picture_0.png').
     """
-    assets_dir = output_dir / "assets" / source_id
+    assets_dir = output_dir / books_dir / source_id / ".assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
 
     doc = fitz.open(pdf_path)

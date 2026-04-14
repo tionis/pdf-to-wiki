@@ -88,8 +88,8 @@ def emit_skeleton(
             section_text = repair_text(section_text, tree, current_note_path=rel_path)
         # Rewrite wiki-root-relative image refs to note-relative paths
         if section_text and "assets/" in section_text:
-            section_text = _rewrite_asset_paths(section_text, rel_path, config.books_dir)
-        content = _render_note(node, tree, source.path, section_text)
+            section_text = _rewrite_asset_paths(section_text, rel_path, config.books_dir, source_id=tree.source_id)
+        content = _render_note(node, tree, source.path, source.sha256, section_text)
         abs_path.write_text(content, encoding="utf-8")
 
         # Update node's markdown_output_path
@@ -180,15 +180,21 @@ def _cleanup_stale_files(
         logger.info(f"Cleaned up {removed} stale file{'s' if removed != 1 else ''} from previous emission")
 
 
-def _render_note(node: SectionNode, tree: SectionTree, source_pdf_path: str, extracted_text: str = "") -> str:
+def _render_note(node: SectionNode, tree: SectionTree, source_pdf_path: str, source_sha256: str, extracted_text: str = "") -> str:
     """Render a single Markdown note for a section node.
 
     If extracted_text is non-empty, it is included as the note body.
     Otherwise, a placeholder is used.
     """
+    # Generate a portable source reference: filename + hash prefix
+    # instead of absolute path which isn't portable across machines
+    import os
+    pdf_filename = os.path.basename(str(source_pdf_path))
+    source_ref = f"{pdf_filename} (sha256:{source_sha256[:16]})"
+
     # Frontmatter
     fm = {
-        "source_pdf": str(source_pdf_path),
+        "source_pdf": source_ref,
         "source_pdf_id": node.source_id,
         "section_id": node.section_id,
         "level": node.level,
@@ -359,44 +365,61 @@ def _deduplicate_heading(body: str, section_title: str) -> str:
     return text if text else body
 
 
-def _rewrite_asset_paths(text: str, note_path: str, books_dir: str) -> str:
+def _rewrite_asset_paths(text: str, note_path: str, books_dir: str, source_id: str) -> str:
     """Rewrite wiki-root-relative asset paths to note-relative paths.
 
-    Image references like `![](assets/source_id/img.png)` are wiki-root-relative
-    (relative to the books/ directory). But Markdown files are at varying depths
-    like `books/source_id/chapter/section.md`, so the actual relative path
-    needs the right number of `../` prefixes.
+    Image references like `![](assets/source_id/img.png)` are wiki-root-relative.
+    Since assets are stored in `books/source_id/.assets/`, this function
+    rewrites references to use the note-relative path to `.assets/`.
 
-    This function calculates the relative path from the note to the
-    assets directory and rewrites all `assets/` references accordingly.
+    For example, from `books/source_id/chapter/section.md`:
+      assets/source_id/img.png → ../.assets/img.png
+
+    From `books/source_id/index.md`:
+      assets/source_id/img.png → .assets/img.png
     """
     import re
     from pathlib import PurePosixPath
 
     # Compute depth: how many directories deep is this note?
-    # e.g., books/source_id/chapter/section.md → 2 levels deep
-    #       books/source_id/index.md → 1 level deep
+    # e.g., books/source_id/chapter/section.md → 2 levels deep below source_id
+    #       books/source_id/index.md → 0 levels deep below source_id
     note = PurePosixPath(note_path)
-    # Depth relative to books_dir (e.g., 2 for books/src/chapter/sec.md)
     books_prefix = PurePosixPath(books_dir)
     try:
         relative = note.relative_to(books_prefix)
-        depth = len(relative.parent.parts)  # 0 if in books dir root
+        # Parts relative to books/: source_id/chapter/section.md
+        # Depth below source_id = len(parts) - 2 (skip source_id and filename)
+        parts = relative.parts
+        # If parts = (source_id, chapter, section.md), depth = len(parts) - 2
+        # If parts = (source_id, index.md), depth = 0
+        if len(parts) >= 2:
+            depth = len(parts) - 2  # depth below source_id directory
+        else:
+            depth = 0
     except ValueError:
         depth = len(note.parent.parts)
 
-    # The prefix to go from note to wiki root
+    # The prefix to go from note to .assets/ within the source_id dir
     if depth == 0:
-        prefix = "./"
+        prefix = ".assets/"
     else:
-        prefix = "../" * depth
+        prefix = "../" * depth + ".assets/"
 
     def _replace(m):
         alt_text = m.group(1)
         img_path = m.group(2)
         # Only rewrite wiki-root-relative paths
         if img_path.startswith("assets/"):
-            return f"![{alt_text}]({prefix}{img_path})"
+            # Extract just the filename (drop assets/source_id/ prefix)
+            # assets/source_id/page_N_picture_X.png → page_N_picture_X.png
+            path_parts = PurePosixPath(img_path)
+            if len(path_parts.parts) >= 3:
+                # Skip assets/ and source_id/ — just keep the filename
+                filename = path_parts.name
+                return f"![{alt_text}]({prefix}{filename})"
+            else:
+                return f"![{alt_text}]({prefix}{img_path})"
         return m.group(0)
 
     return re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", _replace, text)
@@ -410,12 +433,13 @@ def _emit_book_index(
 ) -> None:
     """Emit a top-level index.md for the book."""
     from pdf_to_wiki.models import PdfSource
+    import os
 
     index_path = output_dir / books_dir / tree.source_id / "index.md"
     index_path.parent.mkdir(parents=True, exist_ok=True)
 
     fm = {
-        "source_pdf": source.path,
+        "source_pdf": f"{os.path.basename(source.path)} (sha256:{source.sha256[:16]})",
         "source_pdf_id": source.source_id,
         "section_id": f"{tree.source_id}",
         "level": 0,
@@ -436,7 +460,7 @@ def _emit_book_index(
     lines.append(f"**SHA-256:** `{source.sha256[:16]}…`")
     lines.append("")
 
-    # List top-level sections
+    # List top-level sections with page ranges for context
     if tree.root_ids:
         lines.append("## Chapters")
         lines.append("")
@@ -446,7 +470,8 @@ def _emit_book_index(
             node = tree.nodes[rid]
             target_path = section_note_path(node, tree, books_dir)
             link = relative_markdown_link(index_note_path, target_path, node.title)
-            lines.append(f"- {link}")
+            page_label = node.printed_page_start or str(node.pdf_page_start)
+            lines.append(f"- {link} (p. {page_label})")
         lines.append("")
 
     index_path.write_text("\n".join(lines), encoding="utf-8")

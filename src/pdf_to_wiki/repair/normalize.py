@@ -20,6 +20,7 @@ logger = get_logger(__name__)
 def repair_text(text: str, tree: "SectionTree | None" = None, current_note_path: str | None = None) -> str:
     """Apply all repair/normalization steps to extracted text."""
     text = clean_marker_artifacts(text)
+    text = remap_dingbat_bullets(text)
     text = fix_ocr_word_breaks(text)
     text = normalize_bullets(text)
     text = normalize_whitespace(text)
@@ -34,9 +35,41 @@ def repair_text(text: str, tree: "SectionTree | None" = None, current_note_path:
 def clean_marker_artifacts(text: str) -> str:
     """Remove Marker-specific HTML artifacts from extracted text.
 
-    Marker inserts page-anchor spans like <span id="page-42-0"></span>
-    which are not needed in the wiki output.
+    Marker inserts:
+    - Page-anchor spans like <span id="page-42-0"></span>
+    - Page-reference links like [\\(p.21\\)](#page-21-0)
+
+    The page-anchor spans are stripped entirely. The page-reference links
+    are unwrapped — the link text (e.g., "p. 21") is preserved as plain
+    text so that annotate_page_references() can later convert it to
+    {{page-ref:21}} and then to a proper Markdown relative link.
+
+    Without this unwrapping, the page-ref annotation would nest inside
+    the Marker link, producing malformed output like:
+      [[Momentum](momentum.md)](#page-21-0)
     """
+    # Unwrap Marker page-reference links: [\(p.21\)](#page-21-0) → p.21
+    # These have the form [(...\(text)p. NUM\)...](#page-N-X)
+    # The link text usually contains escaped parens and a page ref.
+    # We extract just the page reference portion.
+    def _unwrap_page_ref(m):
+        link_text = m.group(1)
+        # Remove backslash-escaped parens: \( and \)
+        link_text = link_text.replace('\\(', '').replace('\\)', '')
+        # Strip outer whitespace
+        link_text = link_text.strip()
+        # Remove leading/trailing punctuation that was part of the wrapper
+        link_text = link_text.strip('().')
+        return link_text
+
+    # Match links with #page- anchors — these are Marker page refs
+    # Pattern: [link_text](#page-N-M) where link_text may contain \( \)
+    text = re.sub(
+        r'\[([^]]*?)\]\(#page-\d+-\d+\)',
+        _unwrap_page_ref,
+        text,
+    )
+
     # Remove page-anchor spans (self-closing or empty)
     text = re.sub(r'<span\s+id="page-\d+-\d+"\s*>\s*</span>', '', text)
     # Remove any leftover empty span tags
@@ -180,6 +213,60 @@ def fix_ocr_word_breaks(text: str) -> str:
     return result
 
 
+def remap_dingbat_bullets(text: str) -> str:
+    """Remap dingbat font characters that survived Marker extraction.
+
+    When Marker processes PDFs that use symbol/dingbat fonts like
+    FantasyRPGDings, it extracts the character code (e.g., 'Y') instead
+    of the visual glyph (e.g., '•'). The PyMuPDF engine handles this
+    at span level via DINGBATS_FONT_MAP, but Marker doesn't preserve
+    font information.
+
+    This function recognizes patterns where dingbat characters appear
+    as bullet markers and remaps them:
+
+    - 'Y' at the start of a list item (after '- ':  '- Y **...' → '- • **...')
+    - 'Y' in dot-rating contexts: '(Y)', '(YY)', '(YYY)'
+    - 'YY', 'YYY' as standalone list markers
+
+    The heuristic is conservative: it only remaps 'Y' when it appears
+    in an unambiguous bullet/dingbat context (list position, or inside
+    parentheses after a title word).
+    """
+    # Map of dingbat char -> replacement
+    # FantasyRPGDings 'Y' = bullet (•)
+    dingbat_char = 'Y'
+    replacement = '\u2022'  # bullet (•)
+
+    # Pattern 1: List item '- Y ' or '- YY ' at line start
+    # This matches: '- Y **Bold text**', '- Y Some text'
+    # But NOT: '- Yes,', '- You', '- Your' (common English words after list marker)
+    # Heuristic: Y followed by space+uppercase, space+bold(**), or end of line
+    text = re.sub(
+        r'^(- )(' + dingbat_char + r'+)(?=\s|$)',
+        lambda m: m.group(1) + replacement * len(m.group(2)),
+        text,
+        flags=re.MULTILINE,
+    )
+
+    # Pattern 2: Dot-rating in parentheses: '(Y)', '(YY)', '(YYY)'
+    # Common in TTRPG content: "Ambusher (Y)", "Fame (Y to YYY)", "Sprinter (YY)"
+    text = re.sub(
+        r'\((' + dingbat_char + r'+)\)',
+        lambda m: '(' + replacement * len(m.group(1)) + ')',
+        text,
+    )
+
+    # Pattern 3: Dot-rating range: '(Y to YYY)', '(Y-YYY)'
+    text = re.sub(
+        r'\((' + dingbat_char + r'+)\s+to\s+(' + dingbat_char + r'+)\)',
+        lambda m: '(' + replacement * len(m.group(1)) + ' to ' + replacement * len(m.group(2)) + ')',
+        text,
+    )
+
+    return text
+
+
 def normalize_bullets(text: str) -> str:
     """Normalize bullet list markers to standard Markdown.
 
@@ -249,7 +336,7 @@ def annotate_page_references(text: str) -> str:
     # Also "page NN" when not part of a different context
     patterns = [
         # "p. NN" or "pp. NN-NN"
-        (r"\b[pP]{1,2}\.\s+(\d+(?:\s*[-–]\s*\d+)?)\b", r"{{page-ref:\1}}"),
+        (r"\b[pP]{1,2}\.\s*(\d+(?:\s*[-–]\s*\d+)?)\b", r"{{page-ref:\1}}"),
         # "see page NN" or "on page NN"
         (r"\b(?:see|on|at|to)\s+page\s+(\d+)\b", r"{{page-ref:\1}}"),
     ]

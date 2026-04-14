@@ -16,6 +16,7 @@ Results are cached as JSON artifacts. The step is resumable.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import PurePosixPath
 
 from pdf_to_wiki.cache.artifact_store import ArtifactStore
 from pdf_to_wiki.cache.db import CacheDB
@@ -210,17 +211,22 @@ def _extract_images(source, config: WikiConfig) -> dict[str, str]:
     # Check for cached image map
     cached_images = artifacts.load_json(source.source_id, "pdf_images")
     if cached_images:
-        # Verify all referenced image files still exist
-        all_exist = all(
-            (output_dir / path).exists()
-            for path in cached_images.values()
+        # Verify at least one referenced image still exists.
+        # Images are stored in books/source_id/.assets/ but the image_map
+        # keys use wiki-root-relative paths (assets/source_id/...) for
+        # compatibility with _rewrite_asset_paths(). Validate by checking
+        # the actual file location.
+        assets_dir = output_dir / config.books_dir / source.source_id / ".assets"
+        some_exist = any(
+            (assets_dir / PurePosixPath(p).name).exists()
+            for p in cached_images.values()
         )
-        if all_exist:
+        if some_exist:
             logger.info(f"Using cached image map: {len(cached_images)} images")
             return cached_images
 
     # Extract images from PDF
-    image_map = extract_pdf_images(source.path, source.source_id, output_dir)
+    image_map = extract_pdf_images(source.path, source.source_id, output_dir, books_dir=config.books_dir)
 
     # Cache the mapping
     if image_map:
