@@ -80,7 +80,6 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections,
 - [x] Duplicate heading merge in Marker's section splitting
 - [ ] Aliases and glossary extraction (game-specific terms auto-detected)
 - [ ] Entity pages (spells, conditions, skills) as auto-generated stubs
-- [ ] Global search index (Obsidian-compatible)
 - [ ] LLM-assisted enrichment (cached, optional)
 
 ---
