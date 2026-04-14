@@ -256,11 +256,65 @@ def split_markdown_by_headings(
             section_text = "\n".join(lines[start:end]).strip()
             result[section_id] = section_text
         else:
-            # No heading match — this section's content isn't identifiable
-            # by headings alone. Mark as needing per-page extraction.
-            result[section_id] = ""
+            # No heading match — fall back to page-range extraction.
+            # Use Marker's <span id="page-X-Y"> anchors to find
+            # the text for this section's page range.
+            page_text = _extract_by_page_range(markdown, _start_page, _end_page)
+            result[section_id] = page_text
 
     return result
+
+
+def _extract_by_page_range(markdown: str, start_page: int, end_page: int) -> str:
+    """Extract text from Marker's Markdown by page-range anchors.
+
+    Marker inserts <span id="page-X-Y"></span> anchors at the start
+    of each page. This function finds the anchors for pages start_page
+    through end_page and returns the text between them.
+
+    Pages are 0-indexed (matching PyMuPDF's convention).
+    """
+    # Find all page anchors and their line positions
+    page_anchors: list[tuple[int, int]] = []  # (line_idx, page_num)
+    for i, line in enumerate(markdown.split("\n")):
+        m = re.match(r'<span\s+id="page-(\d+)-\d+"\s*>\s*</span>', line)
+        if m:
+            page_num = int(m.group(1))
+            page_anchors.append((i, page_num))
+
+    if not page_anchors:
+        return ""
+
+    lines = markdown.split("\n")
+
+    # Find the start anchor (first page >= start_page)
+    start_line = None
+    for line_idx, page_num in page_anchors:
+        if page_num >= start_page:
+            start_line = line_idx
+            break
+
+    # Find the end anchor (first page > end_page)
+    end_line = None
+    for line_idx, page_num in page_anchors:
+        if page_num > end_page:
+            end_line = line_idx
+            break
+
+    if start_line is None:
+        return ""
+
+    if end_line is None:
+        # No more pages after end_page — go to end of document
+        end_line = len(lines)
+
+    section_lines = lines[start_line:end_line]
+    text = "\n".join(section_lines).strip()
+
+    # Remove the trailing page anchor if present
+    text = re.sub(r'\s*<span\s+id="page-\d+-\d+"\s*>\s*</span>\s*$', "", text, flags=re.MULTILINE)
+
+    return text
 
 
 def _normalize_title(title: str) -> str:
