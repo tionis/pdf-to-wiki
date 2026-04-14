@@ -72,6 +72,9 @@ def emit_skeleton(
     else:
         logger.info("No extracted text found; notes will use placeholders")
 
+    # Load dingbat manifest for repair pipeline (if available)
+    dingbat_manifest = artifacts.load_json(source_id, "dingbat_manifest")
+
     # Generate Markdown files
     output_dir = config.resolved_output_dir()
     emit_manifest: dict[str, str] = {}
@@ -85,7 +88,7 @@ def emit_skeleton(
         # Apply repair/normalization to extracted text
         if section_text and section_text.strip():
             from pdf_to_wiki.repair.normalize import repair_text
-            section_text = repair_text(section_text, tree, current_note_path=rel_path)
+            section_text = repair_text(section_text, tree, current_note_path=rel_path, dingbat_manifest=dingbat_manifest)
         # Rewrite wiki-root-relative image refs to note-relative paths
         if section_text and "assets/" in section_text:
             section_text = _rewrite_asset_paths(section_text, rel_path, config.books_dir, source_id=tree.source_id)
@@ -470,8 +473,7 @@ def _emit_book_index(
             node = tree.nodes[rid]
             target_path = section_note_path(node, tree, books_dir)
             link = relative_markdown_link(index_note_path, target_path, node.title)
-            page_label = node.printed_page_start or str(node.pdf_page_start)
-            lines.append(f"- {link} (p. {page_label})")
+            lines.append(f"- {link}")
         lines.append("")
 
     index_path.write_text("\n".join(lines), encoding="utf-8")

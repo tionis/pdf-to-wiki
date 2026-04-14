@@ -349,3 +349,61 @@ def _clean_text(text: str) -> str:
     text = text.strip()
 
     return text
+
+
+def extract_dingbat_manifest(pdf_path: str) -> dict[str, list[str]]:
+    """Scan a PDF for dingbat/symbol font characters and build a replacement manifest.
+
+    Uses PyMuPDF to inspect the font of every text span. When a span uses
+    a font listed in DINGBATS_FONT_MAP, its characters are recorded as
+    needing replacement.
+
+    Returns:
+        Dict mapping each dingbat character to a list of its replacement characters.
+        E.g., {"Y": ["\u2022"]}
+
+        The dict keys are the raw characters that need replacement in the
+        Marker output. The values are the possible replacements (usually
+        just one). The repair pipeline uses this manifest to apply
+        targeted replacements instead of heuristic pattern matching.
+    """
+    doc = fitz.open(pdf_path)
+    # Collect all dingbat character → replacement mappings found in the PDF
+    char_replacements: dict[str, set[str]] = {}
+
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        blocks = page.get_text("dict")["blocks"]
+
+        for block in blocks:
+            if "lines" not in block:
+                continue
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    font = span.get("font", "")
+                    text = span.get("text", "")
+                    if not font or not text:
+                        continue
+                    # Check against all known dingbat fonts
+                    for font_prefix, mapping in DINGBATS_FONT_MAP.items():
+                        if font.startswith(font_prefix):
+                            for ch in text:
+                                if ch in mapping:
+                                    replacement = mapping[ch]
+                                    if ch not in char_replacements:
+                                        char_replacements[ch] = set()
+                                    char_replacements[ch].add(replacement)
+
+    doc.close()
+
+    # Convert sets to sorted lists (deterministic output)
+    result: dict[str, list[str]] = {
+        ch: sorted(repls) for ch, repls in sorted(char_replacements.items())
+    }
+
+    if result:
+        logger.info(f"Dingbat manifest: {sum(len(v) for v in result.values())} character mapping(s) from {pdf_path}")
+    else:
+        logger.debug(f"No dingbat font characters found in {pdf_path}")
+
+    return result

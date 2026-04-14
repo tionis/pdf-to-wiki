@@ -8,6 +8,8 @@ from pdf_to_wiki.repair.normalize import (
     normalize_bullets,
     normalize_whitespace,
     annotate_page_references,
+    remap_dingbat_bullets,
+    clean_marker_artifacts,
 )
 
 
@@ -137,3 +139,78 @@ class TestRepairText:
         assert '<span id="page-' not in result
         assert 'Before' in result
         assert 'after' in result
+
+class TestDingbatRemap:
+    """Tests for dingbat character remapping using manifest."""
+
+    def test_manifest_overrides_heuristic(self):
+        """When a dingbat manifest is provided, it drives the remapping."""
+        manifest = {"Y": ["•"]}
+        text = "- Y **Competence:** The player characters"
+        result = remap_dingbat_bullets(text, dingbat_manifest=manifest)
+        assert "- • **Competence:**" in result
+
+    def test_manifest_with_unknown_char(self):
+        """Manifest can include characters beyond Y."""
+        manifest = {"Y": ["•"], "l": ["●"]}
+        text = "- Y First item"
+        result = remap_dingbat_bullets(text, dingbat_manifest=manifest)
+        assert "- • First item" in result
+
+    def test_no_manifest_uses_heuristic(self):
+        """Without a manifest, the heuristic handles FantasyRPGDings Y."""
+        text = "- Y **Competence:**"
+        result = remap_dingbat_bullets(text)
+        assert "- • **Competence:**" in result
+
+    def test_does_not_remap_common_english(self):
+        """English words after list markers should NOT be remapped."""
+        text = "- You gain a point\n- Yes, this works"
+        result = remap_dingbat_bullets(text)
+        assert "- You gain a point" in result
+        assert "- Yes, this works" in result
+
+    def test_dot_rating_parens(self):
+        """(Y), (YY) in parentheses should be remapped to dot ratings."""
+        text = "# Sprinter (YY)"
+        result = remap_dingbat_bullets(text, dingbat_manifest={"Y": ["•"]})
+        assert "(••)" in result
+
+    def test_dot_rating_range(self):
+        """(Y to YYY) ranges should be remapped."""
+        text = "# Fame (Y to YYY)"
+        result = remap_dingbat_bullets(text, dingbat_manifest={"Y": ["•"]})
+        assert "(• to •••)" in result
+
+    def test_empty_manifest_preserves_text(self):
+        """Empty manifest means no remapping (no dingbats found in PDF)."""
+        manifest = {}
+        text = "- Y **Competence:**"
+        result = remap_dingbat_bullets(text, dingbat_manifest=manifest)
+        # With empty manifest, Y is NOT treated as a dingbat
+        assert "- Y **Competence:**" in result
+
+
+class TestCleanMarkerArtifacts:
+    """Tests for Marker page-link unwrapping."""
+
+    def test_unwrap_page_ref(self):
+        """[\\(p.21\\)](#page-21-0) should become p.21."""
+        text = "Momentum [\\(p.21\\)](#page-21-0) to the pool"
+        result = clean_marker_artifacts(text)
+        assert "(#page-21-0)" not in result
+        assert "p.21" in result
+
+    def test_unwrap_see_page(self):
+        """[\\(see p. 51\\)](#page-51-0) should become 'see p. 51'."""
+        text = "Bonds [\\(see p. 51\\)](#page-51-0)"
+        result = clean_marker_artifacts(text)
+        assert "(#page-51-0)" not in result
+        assert "see p. 51" in result
+
+    def test_unwrap_bare_page_ref(self):
+        """Simple page refs like [Chapter Two, p. 62](#page-62-0)."""
+        text = "See [Chapter Two, p. 62](#page-62-0)"
+        result = clean_marker_artifacts(text)
+        assert "(#page-62-0)" not in result
+        assert "Chapter Two, p. 62" in result

@@ -106,6 +106,9 @@ def extract_text(
         from pdf_to_wiki.extract.pdf_images import rewrite_image_refs_in_sections
         extracted = rewrite_image_refs_in_sections(extracted, image_map)
 
+    # Extract dingbat font manifest for repair pipeline
+    _extract_dingbats(source, config)
+
     # Persist
     artifacts.save_json(source_id, "extract_text", extracted)
 
@@ -233,3 +236,33 @@ def _extract_images(source, config: WikiConfig) -> dict[str, str]:
         artifacts.save_json(source.source_id, "pdf_images", image_map)
 
     return image_map
+
+
+def _extract_dingbats(source, config: WikiConfig) -> dict[str, list[str]]:
+    """Extract dingbat font manifest from the PDF.
+
+    Scans the PDF with PyMuPDF to find characters from dingbat/symbol fonts
+    and builds a replacement mapping. Caches the manifest for reuse.
+
+    Returns:
+        Dict mapping dingbat characters to their replacement character list.
+        E.g., {"Y": ["\u2022"]}
+    """
+    from pdf_to_wiki.cache.artifact_store import ArtifactStore
+    from pdf_to_wiki.repair.clean_text import extract_dingbat_manifest
+
+    artifacts = ArtifactStore(config.resolved_artifact_dir())
+
+    # Check for cached manifest
+    cached = artifacts.load_json(source.source_id, "dingbat_manifest")
+    if cached is not None:
+        return cached
+
+    # Build manifest from PDF
+    manifest = extract_dingbat_manifest(source.path)
+
+    # Cache it
+    if manifest:
+        artifacts.save_json(source.source_id, "dingbat_manifest", manifest)
+
+    return manifest

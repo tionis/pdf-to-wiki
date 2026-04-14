@@ -17,10 +17,15 @@ from pdf_to_wiki.logging import get_logger
 logger = get_logger(__name__)
 
 
-def repair_text(text: str, tree: "SectionTree | None" = None, current_note_path: str | None = None) -> str:
+def repair_text(
+    text: str,
+    tree: "SectionTree | None" = None,
+    current_note_path: str | None = None,
+    dingbat_manifest: dict[str, list[str]] | None = None,
+) -> str:
     """Apply all repair/normalization steps to extracted text."""
     text = clean_marker_artifacts(text)
-    text = remap_dingbat_bullets(text)
+    text = remap_dingbat_bullets(text, dingbat_manifest=dingbat_manifest)
     text = fix_ocr_word_breaks(text)
     text = normalize_bullets(text)
     text = normalize_whitespace(text)
@@ -213,7 +218,7 @@ def fix_ocr_word_breaks(text: str) -> str:
     return result
 
 
-def remap_dingbat_bullets(text: str) -> str:
+def remap_dingbat_bullets(text: str, dingbat_manifest: dict[str, list[str]] | None = None) -> str:
     """Remap dingbat font characters that survived Marker extraction.
 
     When Marker processes PDFs that use symbol/dingbat fonts like
@@ -222,47 +227,51 @@ def remap_dingbat_bullets(text: str) -> str:
     at span level via DINGBATS_FONT_MAP, but Marker doesn't preserve
     font information.
 
-    This function recognizes patterns where dingbat characters appear
-    as bullet markers and remaps them:
+    If a dingbat_manifest is provided (extracted from PyMuPDF font analysis
+    of the source PDF), it is used to determine which characters need
+    replacement and what they map to. This is robust — it's based on
+    actual font data from the PDF, not heuristics.
 
-    - 'Y' at the start of a list item (after '- ':  '- Y **...' → '- • **...')
-    - 'Y' in dot-rating contexts: '(Y)', '(YY)', '(YYY)'
-    - 'YY', 'YYY' as standalone list markers
-
-    The heuristic is conservative: it only remaps 'Y' when it appears
-    in an unambiguous bullet/dingbat context (list position, or inside
-    parentheses after a title word).
+    Without a manifest, the function applies heuristic pattern matching
+    for the most common dingbat case (FantasyRPGDings 'Y' → '•').
     """
-    # Map of dingbat char -> replacement
-    # FantasyRPGDings 'Y' = bullet (•)
-    dingbat_char = 'Y'
-    replacement = '\u2022'  # bullet (•)
+    # Determine character replacements
+    if dingbat_manifest is not None:
+        # Use the manifest from PyMuPDF font analysis
+        # E.g., {"Y": ["\u2022"]}
+        # Empty manifest (no dingbats found) means no remapping
+        replacements = {
+            ch: repls[0] for ch, repls in dingbat_manifest.items() if repls
+        }
+    else:
+        # Fallback heuristic: FantasyRPGDings 'Y' = bullet (•)
+        replacements = {'Y': '\u2022'}
 
-    # Pattern 1: List item '- Y ' or '- YY ' at line start
-    # This matches: '- Y **Bold text**', '- Y Some text'
-    # But NOT: '- Yes,', '- You', '- Your' (common English words after list marker)
-    # Heuristic: Y followed by space+uppercase, space+bold(**), or end of line
-    text = re.sub(
-        r'^(- )(' + dingbat_char + r'+)(?=\s|$)',
-        lambda m: m.group(1) + replacement * len(m.group(2)),
-        text,
-        flags=re.MULTILINE,
-    )
+    for dingbat_char, replacement in replacements.items():
+        # Pattern 1: List item '- Y ' or '- YY ' at line start
+        # Matches: '- Y **Bold text**', '- Y Some text'
+        # Does NOT match: '- Yes,', '- You', '- Your' (common English words)
+        text = re.sub(
+            r'^(- )(' + re.escape(dingbat_char) + r'+)(?=\s|$)',
+            lambda m, r=replacement: m.group(1) + r * len(m.group(2)),
+            text,
+            flags=re.MULTILINE,
+        )
 
-    # Pattern 2: Dot-rating in parentheses: '(Y)', '(YY)', '(YYY)'
-    # Common in TTRPG content: "Ambusher (Y)", "Fame (Y to YYY)", "Sprinter (YY)"
-    text = re.sub(
-        r'\((' + dingbat_char + r'+)\)',
-        lambda m: '(' + replacement * len(m.group(1)) + ')',
-        text,
-    )
+        # Pattern 2: Dot-rating in parentheses: '(Y)', '(YY)', '(YYY)'
+        # Common in TTRPG content: "Ambusher (Y)", "Sprinter (YY)"
+        text = re.sub(
+            r'\((' + re.escape(dingbat_char) + r'+)\)',
+            lambda m, r=replacement: '(' + r * len(m.group(1)) + ')',
+            text,
+        )
 
-    # Pattern 3: Dot-rating range: '(Y to YYY)', '(Y-YYY)'
-    text = re.sub(
-        r'\((' + dingbat_char + r'+)\s+to\s+(' + dingbat_char + r'+)\)',
-        lambda m: '(' + replacement * len(m.group(1)) + ' to ' + replacement * len(m.group(2)) + ')',
-        text,
-    )
+        # Pattern 3: Dot-rating range: '(Y to YYY)', '(Y-YYY)'
+        text = re.sub(
+            r'\((' + re.escape(dingbat_char) + r'+)\s+to\s+(' + re.escape(dingbat_char) + r'+)\)',
+            lambda m, r=replacement: '(' + r * len(m.group(1)) + ' to ' + r * len(m.group(2)) + ')',
+            text,
+        )
 
     return text
 
