@@ -95,8 +95,15 @@ def extract_text(
     else:
         extracted = {}
         for section_id, node in tree.nodes.items():
+            # Clip parent sections to only include pages before first child
+            end_page = node.pdf_page_end
+            if node.children:
+                first_child_start = min(
+                    tree.nodes[cid].pdf_page_start for cid in node.children
+                )
+                end_page = min(end_page, max(first_child_start - 1, node.pdf_page_start))
             text = engine_instance.extract_page_range(
-                source.path, node.pdf_page_start, node.pdf_page_end
+                source.path, node.pdf_page_start, end_page
             )
             extracted[section_id] = text
 
@@ -171,9 +178,18 @@ def _extract_with_marker(source, tree: SectionTree, engine, config: WikiConfig) 
         logger.info(f"Using cached Marker output: {len(full_md):,} chars")
 
     # Build section list for heading matching
+    # For parent sections (with children), clip the end page to just
+    # before the first child's start page. This prevents parents from
+    # duplicating all their children's content.
     sections: list[tuple[str, str, int, int]] = []
     for section_id, node in tree.nodes.items():
-        sections.append((section_id, node.title, node.pdf_page_start, node.pdf_page_end))
+        end_page = node.pdf_page_end
+        if node.children:
+            first_child_start = min(
+                tree.nodes[cid].pdf_page_start for cid in node.children
+            )
+            end_page = min(end_page, max(first_child_start - 1, node.pdf_page_start))
+        sections.append((section_id, node.title, node.pdf_page_start, end_page))
 
     # Split the markdown by headings
     logger.info(f"Splitting Marker output into {len(sections)} sections by headings...")
@@ -191,7 +207,14 @@ def _extract_with_marker(source, tree: SectionTree, engine, config: WikiConfig) 
         pymupdf = get_engine("pymupdf", config)
         for section_id in missing:
             node = tree.nodes[section_id]
-            text = pymupdf.extract_page_range(source.path, node.pdf_page_start, node.pdf_page_end)
+            # Clip parent sections to only include pages before first child
+            end_page = node.pdf_page_end
+            if node.children:
+                first_child_start = min(
+                    tree.nodes[cid].pdf_page_start for cid in node.children
+                )
+                end_page = min(end_page, max(first_child_start - 1, node.pdf_page_start))
+            text = pymupdf.extract_page_range(source.path, node.pdf_page_start, end_page)
             extracted[section_id] = text
 
     return extracted
