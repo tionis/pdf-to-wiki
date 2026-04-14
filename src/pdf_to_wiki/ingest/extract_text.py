@@ -89,10 +89,15 @@ def extract_text(
         raise ValueError(f"No section tree for {source_id}. Run 'build-section-tree' first.")
     tree = SectionTree(**tree_data)
 
-    # Extract text per section — strategy varies by engine
+    # Extract text per section —
+    # strategy varies by engine
     if engine_name == "marker":
         extracted = _extract_with_marker(source, tree, engine_instance, config)
     else:
+        # Pre-compute which sections share a start page with a sibling
+        # (used to pass start_heading for mid-page extraction)
+        overlap_sections = _find_overlapping_siblings(tree)
+
         extracted = {}
         for section_id, node in tree.nodes.items():
             # Clip parent sections to only include pages before first child
@@ -102,14 +107,19 @@ def extract_text(
                     tree.nodes[cid].pdf_page_start for cid in node.children
                 )
                 end_page = min(end_page, max(first_child_start - 1, node.pdf_page_start))
+
+            # If this section shares a start page with a sibling,
+            # pass the section title as start_heading so the engine
+            # can extract only from the heading onwards on the first page
+            start_heading = None
+            if section_id in overlap_sections:
+                start_heading = node.title
+
             text = engine_instance.extract_page_range(
-                source.path, node.pdf_page_start, end_page
+                source.path, node.pdf_page_start, end_page,
+                start_heading=start_heading,
             )
             extracted[section_id] = text
-
-    # Split overlapping sections (when siblings share a start page,
-    # give each only the content from its heading onwards)
-    extracted = _split_overlapping_sections(extracted, tree)
 
     # Extract images from PDF and rewrite references
     image_map = _extract_images(source, config)
@@ -224,22 +234,50 @@ def _extract_with_marker(source, tree: SectionTree, engine, config: WikiConfig) 
     return extracted
 
 
+def _find_overlapping_siblings(tree: SectionTree) -> set[str]:
+    """Find section IDs that share a start page with a sibling.
+
+    These sections may start mid-page, so their text extraction
+    should include a start_heading to skip content before the heading.
+    """
+    # Group siblings by parent
+    parent_children: dict[str | None, list[str]] = {}
+    for section_id, node in tree.nodes.items():
+        if node.parent_id not in parent_children:
+            parent_children[node.parent_id] = []
+        parent_children[node.parent_id].append(section_id)
+
+    overlap = set()
+    for parent_id, child_ids in parent_children.items():
+        if len(child_ids) < 2:
+            continue
+        for i in range(len(child_ids) - 1):
+            node_i = tree.nodes[child_ids[i]]
+            node_j = tree.nodes[child_ids[i + 1]]
+            if node_i.pdf_page_start == node_j.pdf_page_start:
+                overlap.add(child_ids[i])
+                overlap.add(child_ids[i + 1])
+
+    return overlap
+
+
 def _split_overlapping_sections(
     extracted: dict[str, str], tree: SectionTree,
 ) -> dict[str, str]:
-    """Split text when sibling sections overlap on the same start page.
+    """Trim prefix pollution from sections that share a start page.
 
-    When the TOC has two sections starting on the same page, PyMuPDF
-    gives both of them the entire page. This function detects such
-    overlaps and splits the content at heading boundaries.
+    When two sibling sections start on the same page, PyMuPDF gives
+    both of them the entire page — including content from previous
+    sections that appears before the heading on that page.
 
-    For each pair of siblings that share a start page, we split
-    the EARLIER section's text at the LATER section's heading.
-    The earlier section keeps text before the heading, and the
-    later section keeps text from the heading onwards.
+    We fix this by trimming each affected section's text to start at
+    its OWN heading. We ONLY trim the prefix (content before the
+    heading). The section keeps all content from the heading onward
+    through its full page range — multi-page sections are never
+    truncated.
 
-    This is a best-effort heuristic — it relies on finding the
-    heading text literally in the body.
+    This only applies to sections that share a start page with a
+    sibling — it does NOT aggressively trim all sections.
     """
     import re
 
@@ -250,110 +288,48 @@ def _split_overlapping_sections(
             parent_children[node.parent_id] = []
         parent_children[node.parent_id].append(section_id)
 
-    modified = False
+    # Collect section IDs that share a start page with a sibling
+    needs_trim = set()
     for parent_id, child_ids in parent_children.items():
         if len(child_ids) < 2:
             continue
-
-        # Siblings are already in TOC order. Find consecutive pairs
-        # that share the same start page.
         for i in range(len(child_ids) - 1):
             node_i = tree.nodes[child_ids[i]]
             node_j = tree.nodes[child_ids[i + 1]]
+            if node_i.pdf_page_start == node_j.pdf_page_start:
+                needs_trim.add(child_ids[i])
+                needs_trim.add(child_ids[i + 1])
 
-            # Only split if they start on the same page
-            if node_i.pdf_page_start != node_j.pdf_page_start:
-                continue
+    if not needs_trim:
+        return extracted
 
-            text_i = extracted.get(child_ids[i], "")
-            text_j = extracted.get(child_ids[i + 1], "")
-
-            # Both sections have the same full page content —
-            # split the earlier section at the later section's heading.
-            # The later section's heading should appear in the earlier text.
-            later_title = node_j.title
-            heading_pattern = (
-                r"^#*\s*\*{0,2}"
-                + re.escape(later_title)
-                + r"\*{0,2}\s*$"
-            )
-
-            match = re.search(heading_pattern, text_i, re.MULTILINE | re.IGNORECASE)
-
-            if not match:
-                # Try matching the heading as a substring (heading may have
-                # extra formatting or be mid-line)
-                heading_pattern_loose = r"\b" + re.escape(later_title) + r"\b"
-                match = re.search(heading_pattern_loose, text_i, re.IGNORECASE)
-
-            if match:
-                split_pos = match.start()
-                earlier_only = text_i[:split_pos].strip()
-                later_from_heading = text_i[split_pos:].strip()
-
-                if earlier_only and later_from_heading:
-                    extracted[child_ids[i]] = earlier_only
-                    extracted[child_ids[i + 1]] = later_from_heading
-                    modified = True
-                    logger.debug(
-                        f"Split '{node_i.title}' and '{node_j.title}' "
-                        f"at mid-page heading on page {node_i.pdf_page_start}"
-                    )
-
-    if modified:
-        logger.info("Split overlapping sections at mid-page headings")
-
-    # Also trim any section's text that starts before its own heading.
-    # This happens when the page-range extraction captures content from
-    # a previous section. Find the section's own heading and trim.
-    extracted = _trim_to_own_heading(extracted, tree)
-
-    return extracted
-
-
-def _trim_to_own_heading(
-    extracted: dict[str, str], tree: SectionTree,
-) -> dict[str, str]:
-    """Trim a section's text to start at its own heading.
-
-    When page-range extraction captures content from a previous section
-    (because the heading appears mid-page), the section's text may start
-    with unrelated content. This function finds the section's own heading
-    in its text and removes everything before it.
-
-    Only trims if the heading is found after the first few lines (i.e.,
-    there IS leading content that doesn't belong).
-    """
-    import re
-
+    # Trim prefix from overlapping sections only
     trimmed = 0
-    for section_id, node in tree.nodes.items():
+    for section_id in needs_trim:
         text = extracted.get(section_id, "")
         if not text or len(text) < 50:
             continue
+        node = tree.nodes[section_id]
 
-        # Search for the section's own heading
-        title = node.title
         heading_pattern = (
             r"^#{0,3}\s*\*{0,2}"
-            + re.escape(title)
+            + re.escape(node.title)
             + r"\*{0,2}\s*$"
         )
 
         matches = list(re.finditer(heading_pattern, text, re.MULTILINE | re.IGNORECASE))
-
         if not matches:
             continue
 
-        # If the heading is in the first 2 lines, the text is fine
         first_match = matches[0]
         lines_before = text[:first_match.start()].count('\n')
-        if lines_before <= 2:
-            continue
+        if lines_before <= 1:
+            continue  # Already starts at or near the heading
 
-        # Trim: keep everything from the heading onwards
+        # Trim: keep everything from the first heading match onwards.
+        # This preserves all multi-page content after the heading.
         trimmed_text = text[first_match.start():].strip()
-        if len(trimmed_text) >= 50:  # Don't trim to nothing
+        if len(trimmed_text) >= 50:
             extracted[section_id] = trimmed_text
             trimmed += 1
             logger.debug(
@@ -362,7 +338,7 @@ def _trim_to_own_heading(
             )
 
     if trimmed:
-        logger.info(f"Trimmed {trimmed} sections to start at their own headings")
+        logger.info(f"Trimmed {trimmed} overlapping sections to start at their own headings")
 
     return extracted
 

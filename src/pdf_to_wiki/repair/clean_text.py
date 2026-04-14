@@ -56,12 +56,89 @@ DINGBATS_FONT_MAP: dict[str, dict[str, str]] = {
 }
 
 
-def extract_page_text_structured(page: fitz.Page) -> str:
+def find_heading_position(page: fitz.Page, heading_title: str) -> tuple[int, int] | None:
+    """Find the block and line index of a heading on a page by font size.
+
+    Returns (block_index_in_reading_order, line_index_within_block) or None.
+    Uses font size to identify the real heading, not a running header.
+
+    This correctly handles two-column layouts by sorting blocks in
+    reading order (left column first, then right column).
+    """
+    data = page.get_text("dict")
+    page_width = page.rect.width
+
+    font_sizes = []
+    for block in data.get("blocks", []):
+        if "lines" not in block:
+            continue
+        for line in block["lines"]:
+            for span in line["spans"]:
+                if span["text"].strip():
+                    font_sizes.append(span["size"])
+
+    if not font_sizes:
+        return None
+
+    font_size_counts = Counter(font_sizes)
+    body_size = font_size_counts.most_common(1)[0][0]
+    heading_threshold = body_size * 1.3
+
+    # Collect all text blocks in reading order (same logic as extract_page_text_structured)
+    text_blocks = []
+    for block in data.get("blocks", []):
+        if "lines" not in block:
+            continue
+        bbox = block["bbox"]
+        x0, y0 = bbox[0], bbox[1]
+        block_text = _extract_block_text(block)
+        if block_text.strip():
+            text_blocks.append({
+                "x0": x0, "y0": y0,
+                "text": block_text,
+                "block": block,
+            })
+
+    left_blocks = [b for b in text_blocks if b["x0"] < page_width * 0.45]
+    right_blocks = [b for b in text_blocks if b["x0"] >= page_width * 0.45]
+
+    if left_blocks and right_blocks and len(right_blocks) >= 3:
+        left_blocks.sort(key=lambda b: (b["y0"], b["x0"]))
+        right_blocks.sort(key=lambda b: (b["y0"], b["x0"]))
+        ordered_blocks = left_blocks + right_blocks
+    else:
+        ordered_blocks = sorted(text_blocks, key=lambda b: (b["y0"], b["x0"]))
+
+    escaped = re.escape(heading_title)
+    for blk_idx, block_info in enumerate(ordered_blocks):
+        block_data = block_info["block"]
+        for ln_idx, line in enumerate(block_data["lines"]):
+            line_text = "".join(span["text"] for span in line["spans"]).strip()
+            max_size = max(
+                (span["size"] for span in line["spans"] if span["text"].strip()),
+                default=0,
+            )
+            if re.fullmatch(
+                rf"#{{0,3}}\s*\*{{0,2}}{escaped}\*{{0,2}}\s*",
+                line_text,
+                re.IGNORECASE,
+            ) and max_size >= heading_threshold:
+                return (blk_idx, ln_idx)
+
+    return None
+
+
+def extract_page_text_structured(page: fitz.Page, skip_before: int | tuple[int, int] = 0) -> str:
     """Extract text from a single PDF page with column-aware layout handling.
 
     Uses PyMuPDF's dict mode to get text blocks with position data,
     then sorts them in reading order (left column top-to-bottom,
     then right column top-to-bottom) and applies text cleaning.
+
+    Args:
+        skip_before: If an int, skip this many blocks from the start of
+            reading order. If a tuple (block_idx, line_idx), skip blocks
+            before block_idx and lines before line_idx within that block.
     """
     data = page.get_text("dict")
 
@@ -81,6 +158,7 @@ def extract_page_text_structured(page: fitz.Page) -> str:
                 "x1": x1,
                 "y1": y1,
                 "text": block_text,
+                "block": block,  # Keep reference for line-level splitting
             })
 
     if not text_blocks:
@@ -88,19 +166,52 @@ def extract_page_text_structured(page: fitz.Page) -> str:
 
     page_width = page.rect.width
 
-    # Detect column boundary (roughly middle of page for 2-column layouts)
-    # Check if there are blocks clustered in both left and right halves
     left_blocks = [b for b in text_blocks if b["x0"] < page_width * 0.45]
     right_blocks = [b for b in text_blocks if b["x0"] >= page_width * 0.45]
 
     if left_blocks and right_blocks and len(right_blocks) >= 3:
-        # Two-column layout: sort left column then right column
         left_blocks.sort(key=lambda b: (b["y0"], b["x0"]))
         right_blocks.sort(key=lambda b: (b["y0"], b["x0"]))
         ordered_blocks = left_blocks + right_blocks
     else:
-        # Single-column layout: sort top-to-bottom, left-to-right
         ordered_blocks = sorted(text_blocks, key=lambda b: (b["y0"], b["x0"]))
+
+    # Skip blocks before the heading in reading order
+    if isinstance(skip_before, int) and skip_before > 0:
+        ordered_blocks = ordered_blocks[skip_before:]
+    elif isinstance(skip_before, tuple):
+        blk_skip, ln_skip = skip_before
+        # Skip whole blocks before blk_skip
+        remaining = []
+        for i, b in enumerate(ordered_blocks):
+            if i < blk_skip:
+                continue
+            elif i == blk_skip:
+                # For the heading block, extract only from line ln_skip onwards
+                block_data = b.get("block", b)
+                if "lines" in block_data:
+                    lines_text = []
+                    for j, line in enumerate(block_data["lines"]):
+                        if j < ln_skip:
+                            continue
+                        spans_text = []
+                        for span in line["spans"]:
+                            text = span["text"]
+                            font = span.get("font", "")
+                            if font in DINGBATS_FONT_MAP:
+                                mapping = DINGBATS_FONT_MAP[font]
+                                text = "".join(mapping.get(ch, ch) for ch in text)
+                            spans_text.append(text)
+                        line_text = " ".join(spans_text).strip()
+                        if line_text:
+                            lines_text.append(line_text)
+                    if lines_text:
+                        remaining.append("\n".join(lines_text))
+            else:
+                remaining.append(b["text"])
+        # Join remaining parts with double newlines
+        page_text = "\n\n".join(remaining)
+        return page_text
 
     # Join blocks with double newlines (paragraph breaks)
     page_text = "\n\n".join(b["text"] for b in ordered_blocks)
@@ -116,28 +227,60 @@ def extract_section_text_structured(
     doc: fitz.Document,
     start_page: int,
     end_page: int,
+    start_heading: str | None = None,
 ) -> str:
     """Extract text for a section using structured extraction.
 
     Uses column-aware reading order, header/footer removal,
     and text cleaning.
+
+    Args:
+        start_heading: If provided, find this heading on the start page
+            and only extract content from that heading onwards. Uses
+            font-size detection to find the real heading (not a running
+            header) and then skips blocks before it in reading order.
     """
-    # Phase 1: Collect header/footer candidates
+    # Phase 1: For the start page, find the heading block/line index
+    # if start_heading is specified.
+    skip_before = 0
+    if start_heading:
+        page = doc[start_page]
+        heading_pos = find_heading_position(page, start_heading)
+        if heading_pos is not None:
+            skip_before = heading_pos  # (block_idx, line_idx) tuple
+            logger.debug(
+                f"Found heading '{start_heading}' at block {heading_pos[0]}, "
+                f"line {heading_pos[1]} on page {start_page} — will skip preceding content"
+            )
+        else:
+            logger.debug(
+                f"Heading '{start_heading}' not found on page {start_page}, "
+                f"extracting full page"
+            )
+
+    # Phase 2: Collect header/footer candidates
     header_footer_lines = _detect_headers_footers(doc, start_page, end_page)
 
-    # Phase 2: Extract text page by page, stripping headers/footers
+    # Phase 3: Extract text page by page
     page_texts: list[str] = []
     for page_idx in range(start_page, min(end_page + 1, doc.page_count)):
         page = doc[page_idx]
-        page_text = extract_page_text_structured(page)
+        # On the start page, skip content before the heading
+        skip = skip_before if (page_idx == start_page and skip_before != 0) else 0
+        page_text = extract_page_text_structured(page, skip_before=skip)
         if page_text.strip():
             cleaned = _strip_headers_footers(page_text, header_footer_lines)
+            # When skip_before is set, the first paragraph IS the section heading.
+            # Header/footer removal may strip it if it's also used as a running
+            # header. Re-add it if it was stripped.
+            if skip != 0 and start_heading and not cleaned.strip().startswith(start_heading[:20]):
+                cleaned = start_heading + "\n\n" + cleaned
             page_texts.append(cleaned)
 
     if not page_texts:
         return ""
 
-    # Phase 3: Join pages and apply text cleaning
+    # Phase 4: Join pages and apply text cleaning
     raw = "\n\n".join(page_texts)
     cleaned = _clean_text(raw)
     return cleaned

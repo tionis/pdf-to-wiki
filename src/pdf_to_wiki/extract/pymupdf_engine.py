@@ -30,11 +30,19 @@ class PyMuPDFEngine(BaseEngine):
         pdf_path: str,
         start_page: int,
         end_page: int,
+        start_heading: str | None = None,
     ) -> str:
-        """Extract text using PyMuPDF structured extraction."""
+        """Extract text using PyMuPDF structured extraction.
+
+        Args:
+            start_heading: If provided, find this heading on the start page
+                and only extract content from that heading onwards.
+        """
         doc = fitz.open(pdf_path)
         try:
-            text = extract_section_text_structured(doc, start_page, end_page)
+            text = extract_section_text_structured(
+                doc, start_page, end_page, start_heading=start_heading
+            )
         finally:
             doc.close()
         return text

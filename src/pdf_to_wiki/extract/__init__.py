@@ -59,6 +59,7 @@ class BaseEngine(ABC):
         pdf_path: str,
         start_page: int,
         end_page: int,
+        start_heading: str | None = None,
     ) -> str:
         """Extract text for a page range (0-indexed, inclusive).
 
@@ -66,6 +67,9 @@ class BaseEngine(ABC):
             pdf_path: Absolute path to the PDF file.
             start_page: First page index (0-based).
             end_page: Last page index (0-based, inclusive).
+            start_heading: If provided, find this heading on the start
+                page and only extract content from that heading onwards.
+                Used for mid-page section starts.
 
         Returns:
             Extracted and cleaned text content.
