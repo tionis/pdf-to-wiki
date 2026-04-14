@@ -17,7 +17,7 @@ from rulebook_wiki.logging import get_logger
 logger = get_logger(__name__)
 
 
-def repair_text(text: str, tree: "SectionTree | None" = None) -> str:
+def repair_text(text: str, tree: "SectionTree | None" = None, current_note_path: str | None = None) -> str:
     """Apply all repair/normalization steps to extracted text."""
     text = fix_ocr_word_breaks(text)
     text = normalize_bullets(text)
@@ -26,7 +26,7 @@ def repair_text(text: str, tree: "SectionTree | None" = None) -> str:
     # Page reference rewriting requires section tree context
     if tree is not None:
         from rulebook_wiki.repair.rewrite_refs import rewrite_page_references
-        text = rewrite_page_references(text, tree)
+        text = rewrite_page_references(text, tree, current_note_path=current_note_path)
     return text
 
 

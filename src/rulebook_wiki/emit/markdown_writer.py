@@ -18,7 +18,7 @@ from rulebook_wiki.cache.artifact_store import ArtifactStore
 from rulebook_wiki.cache.db import CacheDB
 from rulebook_wiki.cache.manifests import StepManifestStore
 from rulebook_wiki.config import WikiConfig
-from rulebook_wiki.emit.obsidian_paths import section_note_path
+from rulebook_wiki.emit.obsidian_paths import section_note_path, relative_markdown_link
 from rulebook_wiki.logging import get_logger
 from rulebook_wiki.models import ProvenanceRecord, SectionNode, SectionTree
 
@@ -85,7 +85,7 @@ def emit_skeleton(
         # Apply repair/normalization to extracted text
         if section_text and section_text.strip():
             from rulebook_wiki.repair.normalize import repair_text
-            section_text = repair_text(section_text, tree)
+            section_text = repair_text(section_text, tree, current_note_path=rel_path)
         content = _render_note(node, tree, source.path, section_text)
         abs_path.write_text(content, encoding="utf-8")
 
@@ -205,14 +205,16 @@ def emit_global_index(config: WikiConfig) -> None:
             tree = SectionTree(**tree_data)
             chapter_count = len(tree.root_ids)
 
-        link_slug = f"{config.books_dir}/{source.source_id}"
+        # Global index is at books/index.md
+        # Book index is at books/source_id/index.md
+        from_note_path = f"{config.books_dir}/index.md"
+        to_note_path = f"{config.books_dir}/{source.source_id}/index.md"
+        book_title = source.title or source.source_id
+        link = relative_markdown_link(from_note_path, to_note_path, book_title)
         desc = f"{source.page_count} pages"
         if chapter_count:
             desc += f", {chapter_count} chapters"
-        if source.title:
-            lines.append(f"- [[{link_slug}|{source.title}]] — {desc}")
-        else:
-            lines.append(f"- [[{link_slug}|{source.source_id}]] — {desc}")
+        lines.append(f"- {link} — {desc}")
 
     lines.append("")
 
@@ -307,11 +309,13 @@ def _emit_book_index(
     if tree.root_ids:
         lines.append("## Chapters")
         lines.append("")
+        # The index is at books/source_id/index.md — links are relative from there
+        index_note_path = f"{books_dir}/{tree.source_id}/index.md"
         for rid in tree.root_ids:
             node = tree.nodes[rid]
-            # Obsidian wiki-link: section_note_path already includes /index.md for parent nodes
-            link_slug = section_note_path(node, tree, books_dir).replace(".md", "")
-            lines.append(f"- [[{link_slug}|{node.title}]]")
+            target_path = section_note_path(node, tree, books_dir)
+            link = relative_markdown_link(index_note_path, target_path, node.title)
+            lines.append(f"- {link}")
         lines.append("")
 
     index_path.write_text("\n".join(lines), encoding="utf-8")

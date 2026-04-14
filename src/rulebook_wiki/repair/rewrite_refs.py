@@ -1,17 +1,20 @@
-"""Reference rewriting — convert page references to Obsidian wiki-links.
+"""Reference rewriting — convert page references to Markdown relative links.
 
 Takes the section tree + extracted text with {{page-ref:N}} annotations
-and resolves them to [[section-slug|Section Title]] wiki-links by looking
-up which section covers that printed page number.
+and resolves them to [Section Title](../relative/path.md) relative links
+by looking up which section covers that printed page number.
 
-This is a deterministic step — no LLM needed. It uses the section tree's
+This is a deterministic step — no LLM is needed. It uses the section tree's
 page range mappings to find the right section for each page reference.
 """
 
 from __future__ import annotations
 
 import re
+from pathlib import PurePosixPath
+
 from rulebook_wiki.models import SectionTree
+from rulebook_wiki.emit.obsidian_paths import section_note_path, relative_markdown_link
 from rulebook_wiki.logging import get_logger
 
 logger = get_logger(__name__)
@@ -20,12 +23,14 @@ logger = get_logger(__name__)
 def rewrite_page_references(
     text: str,
     tree: SectionTree,
+    current_note_path: str | None = None,
+    books_dir: str = "books",
     all_trees: dict[str, SectionTree] | None = None,
 ) -> str:
-    """Rewrite {{page-ref:N}} annotations to Obsidian wiki-links.
+    """Rewrite {{page-ref:N}} annotations to Markdown relative links.
 
     For each {{page-ref:N}}, find the section whose page range covers
-    printed page number N, and replace with [[section-slug|Section Title]].
+    printed page number N, and replace with [Title](../path/to/section.md).
 
     If multiple sections match (e.g., chapter-level sections), prefer
     leaf sections (no children) for more specific links.
@@ -34,6 +39,15 @@ def rewrite_page_references(
     search other books' section trees for a match.
 
     If no section matches anywhere, leave the annotation as-is.
+
+    Args:
+        text: The Markdown text containing {{page-ref:N}} annotations.
+        tree: The current book's section tree.
+        current_note_path: Path of the current note relative to wiki root
+            (e.g., 'books/source_id/chapter/section.md'). Required for
+            computing relative links.
+        books_dir: The books directory name (default 'books').
+        all_trees: Optional dict of source_id → SectionTree for cross-book lookups.
     """
     # Build lookup for the primary tree
     page_to_sections, pdf_page_to_sections = _build_page_lookup(tree)
@@ -45,6 +59,17 @@ def rewrite_page_references(
             if sid != tree.source_id:
                 all_page_lookups[sid] = _build_page_lookup(t)
 
+    # Pre-compute note paths for all sections in the current tree
+    note_paths: dict[str, str] = {}
+    for section_id, node in tree.nodes.items():
+        note_paths[section_id] = section_note_path(node, tree, books_dir)
+
+    # Also for cross-book trees
+    if all_trees:
+        for sid, t in all_trees.items():
+            for section_id, node in t.nodes.items():
+                note_paths[section_id] = section_note_path(node, t, books_dir)
+
     def _replace_ref(m):
         page_str = m.group(1)
         page_num = _parse_page_label(page_str)
@@ -53,7 +78,7 @@ def rewrite_page_references(
 
         # Try current tree first
         sections = page_to_sections.get(page_num, [])
-        source_prefix = ""  # Same book, no prefix needed
+        target_tree = tree
 
         # If not found, try as PDF page index (0-based)
         if not sections:
@@ -73,7 +98,7 @@ def rewrite_page_references(
                     except ValueError:
                         pass
                 if sections:
-                    source_prefix = f"{other_sid}/"
+                    target_tree = all_trees[other_sid]
                     break
 
         if not sections:
@@ -88,21 +113,23 @@ def rewrite_page_references(
             chosen = sections[0]
 
         section_id, title, _ = chosen
-        # Generate the Obsidian link path including source_id namespace.
-        # This matches the file layout: books/source_id/chapter/section.md
-        # The slug path is the part after source_id/ in the section_id.
-        parts = section_id.split("/", 1)
-        if len(parts) > 1:
-            slug = parts[1]
-        else:
-            slug = section_id
 
-        # For same-book links, include source_id prefix to match file paths.
-        # For cross-book links, the source_prefix already contains the other book's source_id.
-        if source_prefix:
-            return f"[[{source_prefix}{slug}|{title}]]"
+        # Get target note path
+        target_path = note_paths.get(section_id)
+        if target_path is None:
+            # Fallback: compute on the fly
+            target_node = target_tree.nodes.get(section_id)
+            if target_node:
+                target_path = section_note_path(target_node, target_tree, books_dir)
+            else:
+                return m.group(0)  # Can't resolve, keep original
+
+        # Compute relative link
+        if current_note_path:
+            return relative_markdown_link(current_note_path, target_path, title)
         else:
-            return f"[[{tree.source_id}/{slug}|{title}]]"
+            # Fallback: use absolute path within the wiki
+            return f"[{title}]({target_path})"
 
     return re.sub(r"\{\{page-ref:(\d+(?:-\d+)?)\}\}", _replace_ref, text)
 
