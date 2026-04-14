@@ -85,7 +85,7 @@ def emit_skeleton(
         # Apply repair/normalization to extracted text
         if section_text and section_text.strip():
             from rulebook_wiki.repair.normalize import repair_text
-            section_text = repair_text(section_text)
+            section_text = repair_text(section_text, tree)
         content = _render_note(node, tree, source.path, section_text)
         abs_path.write_text(content, encoding="utf-8")
 

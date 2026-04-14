@@ -17,12 +17,16 @@ from rulebook_wiki.logging import get_logger
 logger = get_logger(__name__)
 
 
-def repair_text(text: str) -> str:
+def repair_text(text: str, tree: "SectionTree | None" = None) -> str:
     """Apply all repair/normalization steps to extracted text."""
     text = fix_ocr_word_breaks(text)
     text = normalize_bullets(text)
     text = normalize_whitespace(text)
     text = annotate_page_references(text)
+    # Page reference rewriting requires section tree context
+    if tree is not None:
+        from rulebook_wiki.repair.rewrite_refs import rewrite_page_references
+        text = rewrite_page_references(text, tree)
     return text
 
 
@@ -127,6 +131,12 @@ def fix_ocr_word_breaks(text: str) -> str:
         (r"(\bvan)\s+(ish)\b", r"\1\2"),
         # -plish
         (r"(\baccom)\s+(plish)\b", r"\1\2"),
+        # Word-internal splits (common in OCR)
+        (r"(\bcharac)\s+(ter)\b", r"\1\2"),
+        (r"(\bcharac)\s+(ters)\b", r"\1\2"),
+        (r"(\bfor)\s+(ward)\b", r"\1\2"),
+        (r"(\bel)\s+(ement)\b", r"\1\2"),     # "el ement"
+        (r"(\bel)\s+(ements)\b", r"\1\2"),   # "el ements"
     ]
 
     # Exclusions: word pairs that look like suffix splits but are real words
