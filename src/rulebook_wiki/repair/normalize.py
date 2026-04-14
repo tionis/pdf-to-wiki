@@ -171,15 +171,28 @@ def normalize_bullets(text: str) -> str:
 
     Converts various bullet characters (•, ◦, ▪, ►, ‣, etc.) to
     standard Markdown `-` or `*` bullets, preserving indentation.
+
+    When a line starts with multiple bullet characters (e.g., •• or •••),
+    these are dot ratings (common in TTRPGs) — the first • becomes the
+    list marker and subsequent • characters are preserved as ratings.
     """
     # Map of bullet characters to Markdown equivalents
     bullet_chars = "•◦▪►‣▸▹●○◎"
-    bullet_re = re.compile(r"^(\s*)[" + re.escape(bullet_chars) + r"]\s*", re.MULTILINE)
+    bullet_re = re.compile(
+        r"^(\s*)([" + re.escape(bullet_chars) + r"])([" + re.escape(bullet_chars) + r"]*)\s*",
+        re.MULTILINE,
+    )
 
     def _replace_bullet(m):
         indent = m.group(1)
-        # Use - for top-level, indented for nested
-        return f"{indent}- "
+        first_bullet = m.group(2)  # First bullet char (list marker)
+        extra_dots = m.group(3)     # Additional bullet chars (dot rating)
+        if extra_dots:
+            # Multiple bullet chars = dot rating (••, •••, etc.)
+            # First char becomes list marker, rest preserved as rating
+            return f"{indent}- {extra_dots} "
+        else:
+            return f"{indent}- "
 
     return bullet_re.sub(_replace_bullet, text)
 

@@ -74,6 +74,18 @@ class TestNormalizeBullets:
         result = normalize_bullets(text)
         assert result == text
 
+    def test_dot_rating_preserved(self):
+        """•• and ••• (TTRPG dot ratings) should preserve the extra dots."""
+        text = "•• Allow ignoring Complications\n••• Gain +3 Enhancement"
+        result = normalize_bullets(text)
+        assert result == "- • Allow ignoring Complications\n- •• Gain +3 Enhancement"
+
+    def test_single_dot_as_bullet(self):
+        """Single • at line start becomes list marker."""
+        text = "• Add a +1 Enhancement"
+        result = normalize_bullets(text)
+        assert result == "- Add a +1 Enhancement"
+
 
 class TestNormalizeWhitespace:
     def test_collapse_blank_lines(self):

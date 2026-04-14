@@ -33,6 +33,28 @@ logger = get_logger(__name__)
 # Note: \xad and \u00ad are the same character (ord 173).
 SOFT_HYPHEN = "\u00ad"
 
+# Known dingbats/symbol font mappings.
+# These fonts use standard ASCII codes for decorative characters.
+# PyMuPDF extracts the character code, not the visual glyph.
+# We map these to their visual equivalents so the text reads correctly.
+DINGBATS_FONT_MAP: dict[str, dict[str, str]] = {
+    "FantasyRPGDings": {
+        "Y": "\u2022",  # Bullet dot (•) — used for dot ratings in Storypath games
+    },
+    # Common ZapfDingbats mappings (partial)
+    "ZapfDingbats": {
+        "l": "\u25cf",  # Filled circle (●)
+        "m": "\u25a0",  # Filled square (■)
+        "n": "\u25b2",  # Up triangle (▲)
+        "q": "\u2665",  # Heart (♥)
+    },
+    "Symbol": {
+        "b": "\u222b",  # Integral (∫)
+        "p": "\u03c0",  # Pi (π)
+        "S": "\u03a3",  # Sigma (Σ)
+    },
+}
+
 
 def extract_page_text_structured(page: fitz.Page) -> str:
     """Extract text from a single PDF page with column-aware layout handling.
@@ -122,11 +144,23 @@ def extract_section_text_structured(
 
 
 def _extract_block_text(block: dict) -> str:
-    """Extract text from a dict-mode block, preserving line structure."""
+    """Extract text from a dict-mode block, preserving line structure.
+
+    Applies dingbats font mapping so that symbol characters
+    (e.g., Y in FantasyRPGDings → •) are rendered correctly.
+    """
     lines: list[str] = []
     for line in block.get("lines", []):
-        spans_text = " ".join(span["text"] for span in line.get("spans", []))
-        lines.append(spans_text)
+        spans_text: list[str] = []
+        for span in line.get("spans", []):
+            text = span["text"]
+            font = span.get("font", "")
+            # Apply dingbats font mapping
+            if font in DINGBATS_FONT_MAP:
+                mapping = DINGBATS_FONT_MAP[font]
+                text = "".join(mapping.get(ch, ch) for ch in text)
+            spans_text.append(text)
+        lines.append(" ".join(spans_text))
 
     # Join lines within a block with single newlines
     return "\n".join(lines)

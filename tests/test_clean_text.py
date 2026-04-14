@@ -5,6 +5,7 @@ from __future__ import annotations
 from rulebook_wiki.repair.clean_text import (
     _clean_text,
     _detect_headers_footers,
+    _extract_block_text,
     _strip_headers_footers,
     extract_page_text_structured,
     SOFT_HYPHEN,
@@ -27,6 +28,37 @@ class TestCleanText:
         text = "excel\xadlent"  # \xad == U+00AD
         result = _clean_text(text)
         assert "excellent" in result
+
+    def test_dingbats_font_mapping(self):
+        """FantasyRPGDings Y should map to bullet dot (•)."""
+        block = {
+            'lines': [
+                {'spans': [
+                    {'text': 'Y', 'font': 'FantasyRPGDings'},
+                    {'text': ' Add +1 Enhancement', 'font': 'MercuryTextG2-Roman'},
+                ]},
+                {'spans': [
+                    {'text': 'YY', 'font': 'FantasyRPGDings'},
+                    {'text': ' Allow ignoring Complication', 'font': 'MercuryTextG2-Roman'},
+                ]},
+            ]
+        }
+        result = _extract_block_text(block)
+        assert '•' in result
+        assert '••' in result
+        assert 'Y' not in result
+
+    def test_normal_font_unchanged(self):
+        """Normal fonts should not have their text remapped."""
+        block = {
+            'lines': [
+                {'spans': [
+                    {'text': 'You gain +1 Enhancement', 'font': 'MercuryTextG2-Roman'},
+                ]},
+            ]
+        }
+        result = _extract_block_text(block)
+        assert result == 'You gain +1 Enhancement'
 
     def test_hard_hyphen_rejoin(self):
         """Hard hyphens at line breaks should rejoin the word."""
