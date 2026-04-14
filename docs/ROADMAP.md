@@ -123,11 +123,13 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections,
 - [x] Marker page-anchor span cleanup
 - [x] Image extraction from PDF and saving to wiki assets directory
 - [x] Image reference rewriting (Marker refs → relative paths, fallback matching)
-- [x] 115 tests passing
+- [x] Stale output cleanup (remove orphan files on re-emission)
+- [x] Page-range fallback for unmatched sections (98.2% match rate)
+- [x] 116 tests passing
 
 ### Next
 
-- [ ] Improve heading-based section splitting accuracy (fuzzy matching, page-range hints)
+- [ ] Improve remaining 8 unmatched sections (title format issues)
 - [ ] Design extraction artifact schema (structured, not just raw text)
 - [ ] Handle PDFs without embedded TOCs (fallback mode using page ranges)
 - [ ] Add --dry-run mode and --sections/--page-range filters
@@ -163,7 +165,7 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections,
 2. **Marker singleton**: The global `_marker_converter` and `_model_dict` are process-level singletons; not safe for multi-threaded use.
 3. **No dry-run mode**: The `--dry-run` flag is not yet implemented.
 4. **No `--sections` filter**: Cannot limit processing to specific sections.
-5. **Old output cleanup**: `emit-skeleton --force` re-emits but doesn't remove stale files from previous runs (e.g., when sections are renamed or removed).
+5. **Old output cleanup**: ✅ Fixed — `emit-skeleton --force` now removes stale files from previous runs.
 6. **table_extract.py not wired**: PyMuPDF table detection module exists but isn't integrated into the extraction pipeline; Marker handles tables natively.
 
 ---
