@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from rulebook_wiki.logging import get_logger
+from pdf_to_wiki.logging import get_logger
 
 logger = get_logger(__name__)
 

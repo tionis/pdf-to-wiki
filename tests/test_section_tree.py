@@ -6,11 +6,11 @@ from pathlib import Path
 
 from conftest import create_test_pdf
 
-from rulebook_wiki.config import WikiConfig
-from rulebook_wiki.ingest.build_section_tree import build_section_tree, _slugify
-from rulebook_wiki.ingest.extract_page_labels import extract_page_labels
-from rulebook_wiki.ingest.extract_toc import extract_toc
-from rulebook_wiki.ingest.register_pdf import register_pdf
+from pdf_to_wiki.config import WikiConfig
+from pdf_to_wiki.ingest.build_section_tree import build_section_tree, _slugify
+from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels
+from pdf_to_wiki.ingest.extract_toc import extract_toc
+from pdf_to_wiki.ingest.register_pdf import register_pdf
 
 
 class TestSlugify:

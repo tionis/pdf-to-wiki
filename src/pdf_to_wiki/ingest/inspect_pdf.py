@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from rulebook_wiki.cache.db import CacheDB
-from rulebook_wiki.config import WikiConfig
-from rulebook_wiki.logging import get_logger
-from rulebook_wiki.models import PdfSource
+from pdf_to_wiki.cache.db import CacheDB
+from pdf_to_wiki.config import WikiConfig
+from pdf_to_wiki.logging import get_logger
+from pdf_to_wiki.models import PdfSource
 
 logger = get_logger(__name__)
 

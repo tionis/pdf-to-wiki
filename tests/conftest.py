@@ -21,7 +21,7 @@ def tmp_dir(tmp_path: Path) -> Path:
 @pytest.fixture
 def config(tmp_path: Path):
     """Provide a WikiConfig pointing at temporary directories."""
-    from rulebook_wiki.config import WikiConfig
+    from pdf_to_wiki.config import WikiConfig
 
     cfg = WikiConfig(
         output_dir=str(tmp_path / "outputs" / "wiki"),

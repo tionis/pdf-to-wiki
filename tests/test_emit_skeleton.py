@@ -6,20 +6,20 @@ from pathlib import Path
 
 from conftest import create_test_pdf
 
-from rulebook_wiki.config import WikiConfig
-from rulebook_wiki.emit.markdown_writer import emit_skeleton
-from rulebook_wiki.ingest.build_section_tree import build_section_tree
-from rulebook_wiki.ingest.extract_page_labels import extract_page_labels
-from rulebook_wiki.ingest.extract_toc import extract_toc
-from rulebook_wiki.ingest.register_pdf import register_pdf
+from pdf_to_wiki.config import WikiConfig
+from pdf_to_wiki.emit.markdown_writer import emit_skeleton
+from pdf_to_wiki.ingest.build_section_tree import build_section_tree
+from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels
+from pdf_to_wiki.ingest.extract_toc import extract_toc
+from pdf_to_wiki.ingest.register_pdf import register_pdf
 
 
 def _run_full_pipeline(pdf_path: str, config: WikiConfig) -> None:
     """Helper: run the full pipeline up to section-tree build."""
-    from rulebook_wiki.ingest.register_pdf import register_pdf as reg
-    from rulebook_wiki.ingest.extract_toc import extract_toc as toc
-    from rulebook_wiki.ingest.extract_page_labels import extract_page_labels as epl
-    from rulebook_wiki.ingest.build_section_tree import build_section_tree as bst
+    from pdf_to_wiki.ingest.register_pdf import register_pdf as reg
+    from pdf_to_wiki.ingest.extract_toc import extract_toc as toc
+    from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels as epl
+    from pdf_to_wiki.ingest.build_section_tree import build_section_tree as bst
 
     source = reg(pdf_path, config)
     toc(source.source_id, config)
@@ -167,10 +167,10 @@ class TestEmitSkeleton:
         ]
         create_test_pdf(pdf_path, num_pages=10, toc_entries=toc_v2)
         # Force re-register and re-build (same source_id, new PDF content)
-        from rulebook_wiki.ingest.register_pdf import register_pdf as reg
-        from rulebook_wiki.ingest.extract_toc import extract_toc as toc
-        from rulebook_wiki.ingest.extract_page_labels import extract_page_labels as epl
-        from rulebook_wiki.ingest.build_section_tree import build_section_tree as bst
+        from pdf_to_wiki.ingest.register_pdf import register_pdf as reg
+        from pdf_to_wiki.ingest.extract_toc import extract_toc as toc
+        from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels as epl
+        from pdf_to_wiki.ingest.build_section_tree import build_section_tree as bst
         source = reg(str(pdf_path), config)  # Re-register (updates SHA)
         toc(source.source_id, config, force=True)  # Force re-extract TOC
         epl(source.source_id, config, force=True)

@@ -34,7 +34,7 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections,
 - [x] PyMuPDF engine: deterministic, no models, column-aware layout + header/footer removal
 - [x] Marker engine: ML-powered, handles columns/tables/images/bold-italic, ~30s/page on CPU
 - [x] Config-driven engine selection (`extract.engine = "marker"` or `"pymupdf"`)
-- [x] CLI `--engine` flag to override per-run (`rulebook-wiki extract SRC --engine pymupdf`)
+- [x] CLI `--engine` flag to override per-run (`pdf-to-wiki extract SRC --engine pymupdf`)
 - [x] Full-PDF Marker conversion with single-pass caching (`marker_full_md.md` artifact)
 - [x] Heading-based section splitting from Marker's Markdown output
 - [x] Fallback to PyMuPDF for sections without heading matches
@@ -68,7 +68,7 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections,
 - [x] Global top-level wiki index (`books/index.md`) linking to all registered books
 - [x] Per-book index note with relative Markdown links to chapters
 - [x] Per-source provenance preservation in cache DB
-- [x] CLI: `rulebook-wiki build-all` (builds all registered PDFs + global index)
+- [x] CLI: `pdf-to-wiki build-all` (builds all registered PDFs + global index)
 - [ ] Configurable output structure (flat vs. nested per book)
 
 ### Milestone 5 — Cross-book linking and semantic enrichment 🔜
@@ -223,7 +223,7 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries, 450 sections,
 
 ### 2025-04-13 — Milestone 2: Pluggable extraction engines
 
-- Added `rulebook_wiki.extract` module with `BaseEngine` ABC and engine registry
+- Added `pdf_to_wiki.extract` module with `BaseEngine` ABC and engine registry
 - Implemented `PyMuPDFEngine` (deterministic, no ML models)
 - Implemented `MarkerEngine` (ML-powered, high-quality Markdown output)
 - Default engine changed from pymupdf to marker

@@ -6,12 +6,12 @@ from pathlib import Path
 
 from conftest import create_test_pdf
 
-from rulebook_wiki.config import WikiConfig
-from rulebook_wiki.ingest.extract_text import extract_text
-from rulebook_wiki.ingest.extract_toc import extract_toc
-from rulebook_wiki.ingest.extract_page_labels import extract_page_labels
-from rulebook_wiki.ingest.build_section_tree import build_section_tree
-from rulebook_wiki.ingest.register_pdf import register_pdf
+from pdf_to_wiki.config import WikiConfig
+from pdf_to_wiki.ingest.extract_text import extract_text
+from pdf_to_wiki.ingest.extract_toc import extract_toc
+from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels
+from pdf_to_wiki.ingest.build_section_tree import build_section_tree
+from pdf_to_wiki.ingest.register_pdf import register_pdf
 
 
 def _run_pipeline_to_section_tree(pdf_path: str, config: WikiConfig) -> None:
@@ -83,10 +83,10 @@ class TestExtractText:
 
     def test_extract_engine_registry(self):
         """Engine registry should list pymupdf and marker."""
-        from rulebook_wiki.extract import list_engines
+        from pdf_to_wiki.extract import list_engines
         # Import to trigger registration
-        import rulebook_wiki.extract.pymupdf_engine  # noqa: F401
-        import rulebook_wiki.extract.marker_engine  # noqa: F401
+        import pdf_to_wiki.extract.pymupdf_engine  # noqa: F401
+        import pdf_to_wiki.extract.marker_engine  # noqa: F401
         engines = list_engines()
         assert "pymupdf" in engines
         assert "marker" in engines
@@ -94,14 +94,14 @@ class TestExtractText:
     def test_extract_engine_unknown(self):
         """Should raise ValueError for unknown engine."""
         import pytest
-        from rulebook_wiki.extract import get_engine
+        from pdf_to_wiki.extract import get_engine
         with pytest.raises(ValueError, match="Unknown extraction engine"):
             get_engine("nonexistent", WikiConfig())
 
     def test_pymupdf_engine_extract(self, tmp_path: Path, config: WikiConfig):
         """PyMuPDF engine should extract text from a simple PDF."""
-        from rulebook_wiki.extract import get_engine
-        import rulebook_wiki.extract.pymupdf_engine  # noqa: F401
+        from pdf_to_wiki.extract import get_engine
+        import pdf_to_wiki.extract.pymupdf_engine  # noqa: F401
         import fitz
 
         # Create a simple test PDF

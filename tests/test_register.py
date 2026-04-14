@@ -6,9 +6,9 @@ from pathlib import Path
 
 from conftest import create_test_pdf
 
-from rulebook_wiki.cache.db import CacheDB
-from rulebook_wiki.config import WikiConfig
-from rulebook_wiki.ingest.register_pdf import register_pdf
+from pdf_to_wiki.cache.db import CacheDB
+from pdf_to_wiki.config import WikiConfig
+from pdf_to_wiki.ingest.register_pdf import register_pdf
 
 
 class TestRegisterPdf:

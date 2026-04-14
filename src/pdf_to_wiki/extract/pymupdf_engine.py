@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import fitz
 
-from rulebook_wiki.extract import BaseEngine, register_engine
-from rulebook_wiki.repair.clean_text import extract_section_text_structured
+from pdf_to_wiki.extract import BaseEngine, register_engine
+from pdf_to_wiki.repair.clean_text import extract_section_text_structured
 
 
 @register_engine("pymupdf")

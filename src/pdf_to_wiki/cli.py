@@ -1,10 +1,10 @@
-"""CLI entrypoint for the rulebook-wiki pipeline."""
+"""CLI entrypoint for the pdf-to-wiki pipeline."""
 
 from __future__ import annotations
 
 import click
 
-from rulebook_wiki.config import load_config
+from pdf_to_wiki.config import load_config
 
 
 @click.group()
@@ -13,7 +13,7 @@ from rulebook_wiki.config import load_config
 @click.option("--cache-dir", default=None, help="Override cache directory")
 @click.pass_context
 def main(ctx: click.Context, config_path: str | None, output_dir: str | None, cache_dir: str | None) -> None:
-    """Rulebook Wiki Pipeline — convert PDF rulebooks into Obsidian Markdown wikis."""
+    """PDF-to-Wiki — convert PDF rulebooks into structured Markdown wikis."""
     ctx.ensure_object(dict)
     cfg = load_config(config_path)
     if output_dir is not None:
@@ -30,7 +30,7 @@ def main(ctx: click.Context, config_path: str | None, output_dir: str | None, ca
 @click.pass_context
 def register(ctx: click.Context, pdf_path: str, force: bool) -> None:
     """Register a PDF source in the pipeline."""
-    from rulebook_wiki.ingest.register_pdf import register_pdf
+    from pdf_to_wiki.ingest.register_pdf import register_pdf
 
     cfg = ctx.obj["config"]
     source = register_pdf(pdf_path, cfg, force=force)
@@ -45,7 +45,7 @@ def register(ctx: click.Context, pdf_path: str, force: bool) -> None:
 @click.pass_context
 def inspect(ctx: click.Context, source_id: str) -> None:
     """Inspect a registered PDF source."""
-    from rulebook_wiki.ingest.inspect_pdf import inspect_pdf
+    from pdf_to_wiki.ingest.inspect_pdf import inspect_pdf
 
     cfg = ctx.obj["config"]
     source = inspect_pdf(source_id, cfg)
@@ -65,7 +65,7 @@ def inspect(ctx: click.Context, source_id: str) -> None:
 @click.pass_context
 def toc(ctx: click.Context, source_id: str, force: bool) -> None:
     """Extract the PDF's embedded table of contents."""
-    from rulebook_wiki.ingest.extract_toc import extract_toc
+    from pdf_to_wiki.ingest.extract_toc import extract_toc
 
     cfg = ctx.obj["config"]
     entries = extract_toc(source_id, cfg, force=force)
@@ -82,7 +82,7 @@ def toc(ctx: click.Context, source_id: str, force: bool) -> None:
 @click.pass_context
 def page_labels(ctx: click.Context, source_id: str, force: bool) -> None:
     """Extract printed page labels from the PDF."""
-    from rulebook_wiki.ingest.extract_page_labels import extract_page_labels
+    from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels
 
     cfg = ctx.obj["config"]
     labels = extract_page_labels(source_id, cfg, force=force)
@@ -100,7 +100,7 @@ def page_labels(ctx: click.Context, source_id: str, force: bool) -> None:
 @click.pass_context
 def build_section_tree(ctx: click.Context, source_id: str, force: bool) -> None:
     """Build the canonical section tree from TOC and page labels."""
-    from rulebook_wiki.ingest.build_section_tree import build_section_tree
+    from pdf_to_wiki.ingest.build_section_tree import build_section_tree
 
     cfg = ctx.obj["config"]
     tree = build_section_tree(source_id, cfg, force=force)
@@ -118,7 +118,7 @@ def build_section_tree(ctx: click.Context, source_id: str, force: bool) -> None:
 @click.pass_context
 def extract(ctx: click.Context, source_id: str, force: bool, engine: str | None) -> None:
     """Extract text content from the PDF for each section."""
-    from rulebook_wiki.ingest.extract_text import extract_text
+    from pdf_to_wiki.ingest.extract_text import extract_text
 
     cfg = ctx.obj["config"]
     result = extract_text(source_id, cfg, force=force, engine=engine)
@@ -137,7 +137,7 @@ def extract(ctx: click.Context, source_id: str, force: bool, engine: str | None)
 @click.pass_context
 def emit_skeleton(ctx: click.Context, source_id: str, force: bool, force_step: str | None) -> None:
     """Emit Markdown skeleton files from the section tree."""
-    from rulebook_wiki.emit.markdown_writer import emit_skeleton
+    from pdf_to_wiki.emit.markdown_writer import emit_skeleton
 
     cfg = ctx.obj["config"]
     manifest = emit_skeleton(source_id, cfg, force=force, force_step=force_step)
@@ -153,12 +153,12 @@ def emit_skeleton(ctx: click.Context, source_id: str, force: bool, force_step: s
 @click.pass_context
 def build_all(ctx: click.Context, force: bool, engine: str | None) -> None:
     """Build the full wiki for all registered PDF sources."""
-    from rulebook_wiki.ingest.extract_toc import extract_toc
-    from rulebook_wiki.ingest.extract_page_labels import extract_page_labels as extract_pl
-    from rulebook_wiki.ingest.build_section_tree import build_section_tree
-    from rulebook_wiki.ingest.extract_text import extract_text
-    from rulebook_wiki.emit.markdown_writer import emit_skeleton, emit_global_index
-    from rulebook_wiki.cache.db import CacheDB
+    from pdf_to_wiki.ingest.extract_toc import extract_toc
+    from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels as extract_pl
+    from pdf_to_wiki.ingest.build_section_tree import build_section_tree
+    from pdf_to_wiki.ingest.extract_text import extract_text
+    from pdf_to_wiki.emit.markdown_writer import emit_skeleton, emit_global_index
+    from pdf_to_wiki.cache.db import CacheDB
 
     cfg = ctx.obj["config"]
 
@@ -204,7 +204,7 @@ def build_all(ctx: click.Context, force: bool, engine: str | None) -> None:
 @click.pass_context
 def repair(ctx: click.Context, source_id: str, force: bool) -> None:
     """Re-emit Markdown with repair/normalization applied."""
-    from rulebook_wiki.emit.markdown_writer import emit_skeleton
+    from pdf_to_wiki.emit.markdown_writer import emit_skeleton
 
     cfg = ctx.obj["config"]
     manifest = emit_skeleton(source_id, cfg, force=True)
@@ -220,12 +220,12 @@ def repair(ctx: click.Context, source_id: str, force: bool) -> None:
 @click.pass_context
 def build(ctx: click.Context, source_id: str, force: bool, force_step: str | None, skip_extract: bool, engine: str | None) -> None:
     """Run the full pipeline for a registered PDF source."""
-    from rulebook_wiki.ingest.extract_toc import extract_toc
-    from rulebook_wiki.ingest.extract_page_labels import extract_page_labels as extract_pl
-    from rulebook_wiki.ingest.build_section_tree import build_section_tree
-    from rulebook_wiki.ingest.extract_text import extract_text
-    from rulebook_wiki.emit.markdown_writer import emit_skeleton
-    from rulebook_wiki.cache.db import CacheDB
+    from pdf_to_wiki.ingest.extract_toc import extract_toc
+    from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels as extract_pl
+    from pdf_to_wiki.ingest.build_section_tree import build_section_tree
+    from pdf_to_wiki.ingest.extract_text import extract_text
+    from pdf_to_wiki.emit.markdown_writer import emit_skeleton
+    from pdf_to_wiki.cache.db import CacheDB
 
     cfg = ctx.obj["config"]
     step_force = force or (force_step is not None)

@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from rulebook_wiki.config import WikiConfig
+    from pdf_to_wiki.config import WikiConfig
 
 # ── Engine registry ──────────────────────────────────────────────────
 

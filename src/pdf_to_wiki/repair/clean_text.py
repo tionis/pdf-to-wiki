@@ -23,7 +23,7 @@ from collections import Counter
 
 import fitz  # PyMuPDF
 
-from rulebook_wiki.logging import get_logger
+from pdf_to_wiki.logging import get_logger
 
 logger = get_logger(__name__)
 

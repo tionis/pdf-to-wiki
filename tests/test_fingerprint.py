@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rulebook_wiki.ingest.fingerprint import compute_sha256, derive_source_id
+from pdf_to_wiki.ingest.fingerprint import compute_sha256, derive_source_id
 
 
 class TestDeriveSourceId:

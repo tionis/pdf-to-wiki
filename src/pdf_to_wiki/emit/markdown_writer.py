@@ -14,13 +14,13 @@ from datetime import datetime, timezone
 
 import yaml
 
-from rulebook_wiki.cache.artifact_store import ArtifactStore
-from rulebook_wiki.cache.db import CacheDB
-from rulebook_wiki.cache.manifests import StepManifestStore
-from rulebook_wiki.config import WikiConfig
-from rulebook_wiki.emit.obsidian_paths import section_note_path, relative_markdown_link
-from rulebook_wiki.logging import get_logger
-from rulebook_wiki.models import ProvenanceRecord, SectionNode, SectionTree
+from pdf_to_wiki.cache.artifact_store import ArtifactStore
+from pdf_to_wiki.cache.db import CacheDB
+from pdf_to_wiki.cache.manifests import StepManifestStore
+from pdf_to_wiki.config import WikiConfig
+from pdf_to_wiki.emit.obsidian_paths import section_note_path, relative_markdown_link
+from pdf_to_wiki.logging import get_logger
+from pdf_to_wiki.models import ProvenanceRecord, SectionNode, SectionTree
 
 logger = get_logger(__name__)
 
@@ -84,7 +84,7 @@ def emit_skeleton(
         section_text = extracted_text.get(section_id, "") if extracted_text else ""
         # Apply repair/normalization to extracted text
         if section_text and section_text.strip():
-            from rulebook_wiki.repair.normalize import repair_text
+            from pdf_to_wiki.repair.normalize import repair_text
             section_text = repair_text(section_text, tree, current_note_path=rel_path)
         # Rewrite wiki-root-relative image refs to note-relative paths
         if section_text and "assets/" in section_text:
@@ -116,7 +116,7 @@ def emit_skeleton(
         artifact_id=f"{source_id}/emit_skeleton",
         source_id=source_id,
         step=step,
-        tool="rulebook_wiki",
+        tool="pdf_to_wiki",
         tool_version="0.1.0",
         config_hash="",
         created_at=now,
@@ -229,8 +229,8 @@ def _render_note(node: SectionNode, tree: SectionTree, source_pdf_path: str, ext
 
 def emit_global_index(config: WikiConfig) -> None:
     """Emit a global wiki index linking to all registered books."""
-    from rulebook_wiki.cache.db import CacheDB
-    from rulebook_wiki.models import PdfSource
+    from pdf_to_wiki.cache.db import CacheDB
+    from pdf_to_wiki.models import PdfSource
 
     db = CacheDB(config.resolved_cache_db_path())
     artifacts = ArtifactStore(config.resolved_artifact_dir())
@@ -409,7 +409,7 @@ def _emit_book_index(
     books_dir: str,
 ) -> None:
     """Emit a top-level index.md for the book."""
-    from rulebook_wiki.models import PdfSource
+    from pdf_to_wiki.models import PdfSource
 
     index_path = output_dir / books_dir / tree.source_id / "index.md"
     index_path.parent.mkdir(parents=True, exist_ok=True)

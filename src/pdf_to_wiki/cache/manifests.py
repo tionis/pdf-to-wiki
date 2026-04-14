@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from rulebook_wiki.cache.db import CacheDB
-from rulebook_wiki.logging import get_logger
-from rulebook_wiki.models import StepManifest
+from pdf_to_wiki.cache.db import CacheDB
+from pdf_to_wiki.logging import get_logger
+from pdf_to_wiki.models import StepManifest
 
 logger = get_logger(__name__)
 

@@ -14,12 +14,12 @@ import re
 import unicodedata
 from datetime import datetime, timezone
 
-from rulebook_wiki.cache.artifact_store import ArtifactStore
-from rulebook_wiki.cache.db import CacheDB
-from rulebook_wiki.cache.manifests import StepManifestStore
-from rulebook_wiki.config import WikiConfig
-from rulebook_wiki.logging import get_logger
-from rulebook_wiki.models import PageLabel, ProvenanceRecord, SectionNode, SectionTree, TocEntry
+from pdf_to_wiki.cache.artifact_store import ArtifactStore
+from pdf_to_wiki.cache.db import CacheDB
+from pdf_to_wiki.cache.manifests import StepManifestStore
+from pdf_to_wiki.config import WikiConfig
+from pdf_to_wiki.logging import get_logger
+from pdf_to_wiki.models import PageLabel, ProvenanceRecord, SectionNode, SectionTree, TocEntry
 
 logger = get_logger(__name__)
 
@@ -79,7 +79,7 @@ def build_section_tree(
         artifact_id=f"{source_id}/section_tree",
         source_id=source_id,
         step="section_tree",
-        tool="rulebook_wiki",
+        tool="pdf_to_wiki",
         tool_version="0.1.0",
         config_hash="",
         created_at=now,

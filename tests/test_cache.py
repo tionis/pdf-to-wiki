@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rulebook_wiki.cache.artifact_store import ArtifactStore
-from rulebook_wiki.cache.db import CacheDB
-from rulebook_wiki.cache.manifests import StepManifestStore
-from rulebook_wiki.models import PdfSource, ProvenanceRecord, StepManifest
+from pdf_to_wiki.cache.artifact_store import ArtifactStore
+from pdf_to_wiki.cache.db import CacheDB
+from pdf_to_wiki.cache.manifests import StepManifestStore
+from pdf_to_wiki.models import PdfSource, ProvenanceRecord, StepManifest
 
 
 class TestCacheDB:

@@ -1,4 +1,4 @@
-"""Structured logging for the rulebook-wiki pipeline."""
+"""Structured logging for the pdf-to-wiki pipeline."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import logging
 import sys
 
 
-def get_logger(name: str = "rulebook_wiki") -> logging.Logger:
+def get_logger(name: str = "pdf_to_wiki") -> logging.Logger:
     """Return a configured logger for the pipeline."""
     logger = logging.getLogger(name)
     if not logger.handlers:

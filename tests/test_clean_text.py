@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rulebook_wiki.repair.clean_text import (
+from pdf_to_wiki.repair.clean_text import (
     _clean_text,
     _detect_headers_footers,
     _extract_block_text,

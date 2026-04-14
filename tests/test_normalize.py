@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rulebook_wiki.repair.normalize import (
+from pdf_to_wiki.repair.normalize import (
     repair_text,
     fix_ocr_word_breaks,
     normalize_bullets,

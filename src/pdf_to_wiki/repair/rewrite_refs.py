@@ -13,9 +13,9 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
-from rulebook_wiki.models import SectionTree
-from rulebook_wiki.emit.obsidian_paths import section_note_path, relative_markdown_link
-from rulebook_wiki.logging import get_logger
+from pdf_to_wiki.models import SectionTree
+from pdf_to_wiki.emit.obsidian_paths import section_note_path, relative_markdown_link
+from pdf_to_wiki.logging import get_logger
 
 logger = get_logger(__name__)
 

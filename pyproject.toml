@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "rulebook-wiki-pipeline"
+name = "pdf-to-wiki"
 version = "0.1.0"
 description = "Pipeline for converting pen-and-paper rulebook PDFs into structured Obsidian Markdown wikis"
 readme = "README.md"
@@ -19,16 +19,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+marker = [
+    "marker-pdf>=1.0.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-tmp-files>=0.0.2",
 ]
 
+[project.urls]
+Repository = "https://github.com/your-org/pdf-to-wiki"
+
 [project.scripts]
-rulebook-wiki = "rulebook_wiki.cli:main"
+pdf-to-wiki = "pdf_to_wiki.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/rulebook_wiki"]
+packages = ["src/pdf_to_wiki"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

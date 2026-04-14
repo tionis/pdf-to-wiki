@@ -1,4 +1,4 @@
-"""Canonical data models for the rulebook-wiki pipeline.
+"""Canonical data models for the pdf-to-wiki pipeline.
 
 These models are the source of truth for the in-memory representation.
 Markdown is only one rendered view; the JSON-serialized forms of these

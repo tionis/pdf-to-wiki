@@ -2,82 +2,110 @@
 
 ## Installation
 
+### As a CLI tool (recommended)
+
 ```bash
-# Create virtual environment
-uv venv
-source .venv/bin/activate
+# Install with uv — PyMuPDF engine only (fast, deterministic, no ML models)
+uv tool install pdf-to-wiki
 
-# Install the package in editable mode
-pip install -e ".[dev]"
+# Include the Marker engine for high-quality ML-powered extraction
+uv tool install "pdf-to-wiki[marker]"
 
-# Optional: install marker-pdf for high-quality ML extraction
-pip install marker-pdf
+# Install from source
+git clone https://github.com/your-org/pdf-to-wiki.git
+cd pdf-to-wiki
+uv tool install .
+```
+
+### For development
+
+```bash
+git clone https://github.com/your-org/pdf-to-wiki.git
+cd pdf-to-wiki
+
+# Sync dependencies (creates .venv automatically)
+uv sync --extra dev
+
+# Or include Marker support
+uv sync --extra dev --extra marker
+
+# Run CLI via uv
+uv run pdf-to-wiki --help
+```
+
+### Using pip
+
+```bash
+pip install pdf-to-wiki
+
+# Include the Marker engine
+pip install "pdf-to-wiki[marker]"
 ```
 
 ## CLI Commands
 
-### `rulebook-wiki register`
+### `pdf-to-wiki register`
 
 Register a PDF source in the pipeline. This fingerprints the file, extracts basic metadata (title, page count), and persists the source record.
 
 ```bash
-rulebook-wiki register path/to/my-rulebook.pdf
+pdf-to-wiki register path/to/my-rulebook.pdf
 ```
 
 Options:
 - `--force` — Re-register even if already cached
 
-### `rulebook-wiki inspect`
+### `pdf-to-wiki inspect`
 
 Display metadata for a previously registered PDF.
 
 ```bash
-rulebook-wiki inspect my-rulebook
+pdf-to-wiki inspect my-rulebook
 ```
 
-### `rulebook-wiki toc`
+### `pdf-to-wiki toc`
 
 Extract and display the PDF's embedded table of contents (bookmarks/outline).
 
 ```bash
-rulebook-wiki toc my-rulebook
+pdf-to-wiki toc my-rulebook
 ```
 
 Options:
 - `--force` — Force re-extraction
 
-### `rulebook-wiki page-labels`
+### `pdf-to-wiki page-labels`
 
 Extract printed page labels from the PDF.
 
 ```bash
-rulebook-wiki page-labels my-rulebook
+pdf-to-wiki page-labels my-rulebook
 ```
 
 Options:
 - `--force` — Force re-extraction
 
-### `rulebook-wiki build-section-tree`
+### `pdf-to-wiki build-section-tree`
 
 Build the canonical section tree from the cached TOC and page label data.
 
 ```bash
-rulebook-wiki build-section-tree my-rulebook
+pdf-to-wiki build-section-tree my-rulebook
 ```
 
 Options:
 - `--force` — Force rebuild
 
-### `rulebook-wiki extract`
+### `pdf-to-wiki extract`
 
 Extract text content from the PDF for each section's page range.
 
 ```bash
 # Use Marker (default) — high quality, ML-powered, ~30s/page on CPU
-rulebook-wiki extract my-rulebook
+pdf-to-wiki extract my-rulebook
 
 # Use PyMuPDF — fast, deterministic, no ML models
-rulebook-wiki extract my-rulebook --engine pymupdf
+pdf-to-wiki extract my-rulebook --engine pymupdf
 ```
 
 Options:
@@ -88,32 +116,32 @@ Options:
 
 | Engine | Quality | Speed | Requirements |
 |--------|--------|-------|-------------|
-| **marker** (default) | High — columns, tables, bold/italic, heading hierarchy | ~30s/page (CPU) | `marker-pdf` + ~2GB ML models |
-| **pymupdf** | Medium — column-aware, header/footer removal | ~0.1s/page | PyMuPDF only |
+| **marker** (default) | High — columns, tables, bold/italic, heading hierarchy | ~30s/page (CPU) | `[marker]` extra + ~2GB ML models |
+| **pymupdf** | Medium — column-aware, header/footer removal | ~0.1s/page | Core install (no extras needed) |
 
 Marker output is cached at the full-PDF level. First run converts the entire PDF (~2hrs for 257 pages on CPU). Subsequent runs reuse the cached Markdown and split by headings.
 
-### `rulebook-wiki emit-skeleton`
+### `pdf-to-wiki emit-skeleton`
 
 Emit Markdown files from the section tree with YAML frontmatter.
 
 ```bash
-rulebook-wiki emit-skeleton my-rulebook
+pdf-to-wiki emit-skeleton my-rulebook
 ```
 
-### `rulebook-wiki build`
+### `pdf-to-wiki build`
 
 Run the full pipeline: register → toc → page-labels → section-tree → extract → emit.
 
 ```bash
 # Full pipeline with Marker extraction (default)
-rulebook-wiki build my-rulebook
+pdf-to-wiki build my-rulebook
 
 # Fast pipeline with PyMuPDF extraction
-rulebook-wiki build my-rulebook --engine pymupdf
+pdf-to-wiki build my-rulebook --engine pymupdf
 
 # Skip extraction entirely (skeleton only)
-rulebook-wiki build my-rulebook --skip-extract
+pdf-to-wiki build my-rulebook --skip-extract
 ```
 
 Options:
@@ -130,7 +158,7 @@ Options:
 
 ## Configuration
 
-The pipeline reads from `rulebook-wiki.toml` (or `rulebook_wiki.toml`).
+The pipeline reads from `pdf-to-wiki.toml` (or `pdf_to_wiki.toml`).
 
 ```toml
 [wiki]
@@ -171,6 +199,11 @@ Under `data/artifacts/<source_id>/`:
 ## Running Tests
 
 ```bash
+# Using uv (from project root)
+uv run pytest tests/ -v
+
+# Or if you've synced the dev environment
+uv sync --extra dev
 pytest tests/ -v
 ```
 

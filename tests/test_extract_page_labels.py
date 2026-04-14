@@ -6,14 +6,14 @@ from pathlib import Path
 
 from conftest import create_test_pdf
 
-from rulebook_wiki.config import WikiConfig
-from rulebook_wiki.ingest.extract_page_labels import (
+from pdf_to_wiki.config import WikiConfig
+from pdf_to_wiki.ingest.extract_page_labels import (
     _format_label,
     _to_alpha,
     _to_roman,
     extract_page_labels,
 )
-from rulebook_wiki.ingest.register_pdf import register_pdf
+from pdf_to_wiki.ingest.register_pdf import register_pdf
 
 
 class TestPageLabelFormatting:
@@ -98,7 +98,7 @@ class TestPageLabelsProperty:
         """Test that Roman numeral page labels are properly extracted when available."""
         # This tests our _to_roman formatter directly since our test PDFs
         # don't easily support /PageLabels injection
-        from rulebook_wiki.ingest.extract_page_labels import _to_roman, _format_label
+        from pdf_to_wiki.ingest.extract_page_labels import _to_roman, _format_label
 
         assert _format_label("", "/r", 1) == "i"
         assert _format_label("", "/r", 4) == "iv"

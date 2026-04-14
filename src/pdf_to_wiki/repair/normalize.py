@@ -12,7 +12,7 @@ Applies deterministic fixes to extracted text before emission:
 from __future__ import annotations
 
 import re
-from rulebook_wiki.logging import get_logger
+from pdf_to_wiki.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -26,7 +26,7 @@ def repair_text(text: str, tree: "SectionTree | None" = None, current_note_path:
     text = annotate_page_references(text)
     # Page reference rewriting requires section tree context
     if tree is not None:
-        from rulebook_wiki.repair.rewrite_refs import rewrite_page_references
+        from pdf_to_wiki.repair.rewrite_refs import rewrite_page_references
         text = rewrite_page_references(text, tree, current_note_path=current_note_path)
     return text
 

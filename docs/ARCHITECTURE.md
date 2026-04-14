@@ -120,7 +120,7 @@ Files stored under `data/artifacts/<source_id>/`:
 ## Module Layout
 
 ```
-src/rulebook_wiki/
+src/pdf_to_wiki/
 ├── __init__.py          # Package version
 ├── cli.py               # Click CLI commands
 ├── config.py            # TOML config loading

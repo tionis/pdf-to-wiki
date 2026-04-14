@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from rulebook_wiki.models import SectionNode, SectionTree
-from rulebook_wiki.repair.rewrite_refs import rewrite_page_references
+from pdf_to_wiki.models import SectionNode, SectionTree
+from pdf_to_wiki.repair.rewrite_refs import rewrite_page_references
 
 
 def _make_node(sid, title, start, end, children=None, parent=None) -> SectionNode:
@@ -154,7 +154,7 @@ class TestRewritePageReferences:
 
     def test_no_tree(self):
         """Without tree, references should remain as annotations."""
-        from rulebook_wiki.repair.normalize import repair_text
+        from pdf_to_wiki.repair.normalize import repair_text
         text = "See p. 43 for details"
         result = repair_text(text, tree=None)
         assert "{{page-ref:43}}" in result

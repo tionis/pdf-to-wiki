@@ -6,14 +6,14 @@ from pathlib import Path
 
 from conftest import create_test_pdf
 
-from rulebook_wiki.config import WikiConfig
-from rulebook_wiki.ingest.register_pdf import register_pdf
-from rulebook_wiki.ingest.extract_toc import extract_toc
-from rulebook_wiki.ingest.extract_page_labels import extract_page_labels
-from rulebook_wiki.ingest.build_section_tree import build_section_tree
-from rulebook_wiki.emit.markdown_writer import emit_skeleton
-from rulebook_wiki.cache.db import CacheDB
-from rulebook_wiki.cache.artifact_store import ArtifactStore
+from pdf_to_wiki.config import WikiConfig
+from pdf_to_wiki.ingest.register_pdf import register_pdf
+from pdf_to_wiki.ingest.extract_toc import extract_toc
+from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels
+from pdf_to_wiki.ingest.build_section_tree import build_section_tree
+from pdf_to_wiki.emit.markdown_writer import emit_skeleton
+from pdf_to_wiki.cache.db import CacheDB
+from pdf_to_wiki.cache.artifact_store import ArtifactStore
 
 
 class TestEndToEnd:

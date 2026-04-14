@@ -26,8 +26,8 @@ from pathlib import Path
 
 import fitz
 
-from rulebook_wiki.extract import BaseEngine, register_engine
-from rulebook_wiki.logging import get_logger
+from pdf_to_wiki.extract import BaseEngine, register_engine
+from pdf_to_wiki.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -48,7 +48,7 @@ def _get_marker_converter():
         from marker.models import create_model_dict
     except ImportError as e:
         raise ImportError(
-            "marker-pdf is not installed. Install it with: pip install marker-pdf"
+            "marker-pdf is not installed. Install it with: uv add marker-pdf (or pip install marker-pdf)"
         ) from e
 
     logger.info("Initializing Marker models (first run downloads ~2GB)...")

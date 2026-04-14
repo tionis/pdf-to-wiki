@@ -2,32 +2,72 @@
 
 Convert pen-and-paper rulebook PDFs into structured Obsidian Markdown wikis.
 
+## Installation
+
+### Using uv (recommended)
+
+```bash
+# Install as a CLI tool (PyMuPDF engine only — fast, deterministic)
+uv tool install pdf-to-wiki
+
+# Or include the Marker engine for high-quality ML extraction
+uv tool install "pdf-to-wiki[marker]"
+
+# Or clone and install from source
+git clone https://github.com/your-org/pdf-to-wiki.git
+cd pdf-to-wiki
+uv tool install .
+```
+
+### Using pip
+
+```bash
+pip install pdf-to-wiki
+
+# Or include the Marker engine
+pip install "pdf-to-wiki[marker]"
+```
+
+### For development
+
+```bash
+git clone https://github.com/your-org/pdf-to-wiki.git
+cd pdf-to-wiki
+
+# Create a virtual environment and install with dev dependencies
+uv sync --extra dev
+
+# Or with Marker support too
+uv sync --extra dev --extra marker
+
+# The CLI is available via the venv
+uv run pdf-to-wiki --help
+```
+
 ## Quick Start
 
 ```bash
-pip install -e .
-
 # Register a PDF
-rulebook-wiki register path/to/book.pdf
+pdf-to-wiki register path/to/book.pdf
 
 # Inspect registration
-rulebook-wiki inspect book
+pdf-to-wiki inspect book
 
 # Extract and view TOC
-rulebook-wiki toc book
+pdf-to-wiki toc book
 
-# Build the full pipeline (register → toc → page-labels → section-tree → emit-skeleton)
-rulebook-wiki build book
+# Build the full pipeline (register → toc → page-labels → section-tree → extract → emit)
+pdf-to-wiki build book
 
 # Or run individual steps
-rulebook-wiki page-labels book
-rulebook-wiki build-section-tree book
-rulebook-wiki emit-skeleton book
+pdf-to-wiki page-labels book
+pdf-to-wiki build-section-tree book
+pdf-to-wiki emit-skeleton book
 ```
 
 ## Configuration
 
-Create `rulebook-wiki.toml` in your project directory:
+Create `pdf-to-wiki.toml` in your project directory:
 
 ```toml
 [wiki]

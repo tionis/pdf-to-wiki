@@ -17,16 +17,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from rulebook_wiki.cache.artifact_store import ArtifactStore
-from rulebook_wiki.cache.db import CacheDB
-from rulebook_wiki.cache.manifests import StepManifestStore
-from rulebook_wiki.config import WikiConfig
-from rulebook_wiki.extract import get_engine, list_engines
+from pdf_to_wiki.cache.artifact_store import ArtifactStore
+from pdf_to_wiki.cache.db import CacheDB
+from pdf_to_wiki.cache.manifests import StepManifestStore
+from pdf_to_wiki.config import WikiConfig
+from pdf_to_wiki.extract import get_engine, list_engines
 # Import engines to trigger registration
-import rulebook_wiki.extract.pymupdf_engine  # noqa: F401
-import rulebook_wiki.extract.marker_engine  # noqa: F401
-from rulebook_wiki.logging import get_logger
-from rulebook_wiki.models import ProvenanceRecord, SectionTree
+import pdf_to_wiki.extract.pymupdf_engine  # noqa: F401
+import pdf_to_wiki.extract.marker_engine  # noqa: F401
+from pdf_to_wiki.logging import get_logger
+from pdf_to_wiki.models import ProvenanceRecord, SectionTree
 
 logger = get_logger(__name__)
 
@@ -102,7 +102,7 @@ def extract_text(
     # Extract images from PDF and rewrite references
     image_map = _extract_images(source, config)
     if image_map:
-        from rulebook_wiki.extract.pdf_images import rewrite_image_refs_in_sections
+        from pdf_to_wiki.extract.pdf_images import rewrite_image_refs_in_sections
         extracted = rewrite_image_refs_in_sections(extracted, image_map)
 
     # Persist
@@ -146,8 +146,8 @@ def _extract_with_marker(source, tree: SectionTree, engine, config: WikiConfig) 
     This approach is O(N_pages) total rather than O(N_pages * N_sections).
     """
     from pathlib import Path
-    from rulebook_wiki.cache.artifact_store import ArtifactStore
-    from rulebook_wiki.extract.marker_engine import MarkerEngine, split_markdown_by_headings
+    from pdf_to_wiki.cache.artifact_store import ArtifactStore
+    from pdf_to_wiki.extract.marker_engine import MarkerEngine, split_markdown_by_headings
 
     assert isinstance(engine, MarkerEngine)
 
@@ -183,7 +183,7 @@ def _extract_with_marker(source, tree: SectionTree, engine, config: WikiConfig) 
             f"Sections without heading matches: {len(missing)}, "
             f"falling back to PyMuPDF for those"
         )
-        from rulebook_wiki.extract import get_engine
+        from pdf_to_wiki.extract import get_engine
         pymupdf = get_engine("pymupdf", config)
         for section_id in missing:
             node = tree.nodes[section_id]
@@ -201,8 +201,8 @@ def _extract_images(source, config: WikiConfig) -> dict[str, str]:
     Caches the image map for reuse.
     """
     from pathlib import Path
-    from rulebook_wiki.cache.artifact_store import ArtifactStore
-    from rulebook_wiki.extract.pdf_images import extract_pdf_images
+    from pdf_to_wiki.cache.artifact_store import ArtifactStore
+    from pdf_to_wiki.extract.pdf_images import extract_pdf_images
 
     artifacts = ArtifactStore(config.resolved_artifact_dir())
     output_dir = config.resolved_output_dir()

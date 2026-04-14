@@ -15,7 +15,7 @@ else:
 
 @dataclass
 class WikiConfig:
-    """Configuration for the rulebook-wiki pipeline."""
+    """Configuration for the pdf-to-wiki pipeline."""
 
     output_dir: str = "./data/outputs/wiki"
     books_dir: str = "books"
@@ -39,8 +39,8 @@ class WikiConfig:
 
 
 _DEFAULT_CONFIG_LOCATIONS = [
-    "rulebook-wiki.toml",
-    "rulebook_wiki.toml",
+    "pdf-to-wiki.toml",
+    "pdf_to_wiki.toml",
 ]
 
 

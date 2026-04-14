@@ -13,8 +13,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from rulebook_wiki.logging import get_logger
-from rulebook_wiki.models import PdfSource, ProvenanceRecord, StepManifest
+from pdf_to_wiki.logging import get_logger
+from pdf_to_wiki.models import PdfSource, ProvenanceRecord, StepManifest
 
 logger = get_logger(__name__)
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 
-from rulebook_wiki.models import SectionNode, SectionTree
+from pdf_to_wiki.models import SectionNode, SectionTree
 
 
 def section_path(node: SectionNode, tree: SectionTree) -> str:
