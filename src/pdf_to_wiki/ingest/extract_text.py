@@ -107,6 +107,10 @@ def extract_text(
             )
             extracted[section_id] = text
 
+    # Split overlapping sections (when siblings share a start page,
+    # give each only the content from its heading onwards)
+    extracted = _split_overlapping_sections(extracted, tree)
+
     # Extract images from PDF and rewrite references
     image_map = _extract_images(source, config)
     if image_map:
@@ -216,6 +220,149 @@ def _extract_with_marker(source, tree: SectionTree, engine, config: WikiConfig) 
                 end_page = min(end_page, max(first_child_start - 1, node.pdf_page_start))
             text = pymupdf.extract_page_range(source.path, node.pdf_page_start, end_page)
             extracted[section_id] = text
+
+    return extracted
+
+
+def _split_overlapping_sections(
+    extracted: dict[str, str], tree: SectionTree,
+) -> dict[str, str]:
+    """Split text when sibling sections overlap on the same start page.
+
+    When the TOC has two sections starting on the same page, PyMuPDF
+    gives both of them the entire page. This function detects such
+    overlaps and splits the content at heading boundaries.
+
+    For each pair of siblings that share a start page, we split
+    the EARLIER section's text at the LATER section's heading.
+    The earlier section keeps text before the heading, and the
+    later section keeps text from the heading onwards.
+
+    This is a best-effort heuristic — it relies on finding the
+    heading text literally in the body.
+    """
+    import re
+
+    # Group siblings by parent
+    parent_children: dict[str | None, list[str]] = {}
+    for section_id, node in tree.nodes.items():
+        if node.parent_id not in parent_children:
+            parent_children[node.parent_id] = []
+        parent_children[node.parent_id].append(section_id)
+
+    modified = False
+    for parent_id, child_ids in parent_children.items():
+        if len(child_ids) < 2:
+            continue
+
+        # Siblings are already in TOC order. Find consecutive pairs
+        # that share the same start page.
+        for i in range(len(child_ids) - 1):
+            node_i = tree.nodes[child_ids[i]]
+            node_j = tree.nodes[child_ids[i + 1]]
+
+            # Only split if they start on the same page
+            if node_i.pdf_page_start != node_j.pdf_page_start:
+                continue
+
+            text_i = extracted.get(child_ids[i], "")
+            text_j = extracted.get(child_ids[i + 1], "")
+
+            # Both sections have the same full page content —
+            # split the earlier section at the later section's heading.
+            # The later section's heading should appear in the earlier text.
+            later_title = node_j.title
+            heading_pattern = (
+                r"^#*\s*\*{0,2}"
+                + re.escape(later_title)
+                + r"\*{0,2}\s*$"
+            )
+
+            match = re.search(heading_pattern, text_i, re.MULTILINE | re.IGNORECASE)
+
+            if not match:
+                # Try matching the heading as a substring (heading may have
+                # extra formatting or be mid-line)
+                heading_pattern_loose = r"\b" + re.escape(later_title) + r"\b"
+                match = re.search(heading_pattern_loose, text_i, re.IGNORECASE)
+
+            if match:
+                split_pos = match.start()
+                earlier_only = text_i[:split_pos].strip()
+                later_from_heading = text_i[split_pos:].strip()
+
+                if earlier_only and later_from_heading:
+                    extracted[child_ids[i]] = earlier_only
+                    extracted[child_ids[i + 1]] = later_from_heading
+                    modified = True
+                    logger.debug(
+                        f"Split '{node_i.title}' and '{node_j.title}' "
+                        f"at mid-page heading on page {node_i.pdf_page_start}"
+                    )
+
+    if modified:
+        logger.info("Split overlapping sections at mid-page headings")
+
+    # Also trim any section's text that starts before its own heading.
+    # This happens when the page-range extraction captures content from
+    # a previous section. Find the section's own heading and trim.
+    extracted = _trim_to_own_heading(extracted, tree)
+
+    return extracted
+
+
+def _trim_to_own_heading(
+    extracted: dict[str, str], tree: SectionTree,
+) -> dict[str, str]:
+    """Trim a section's text to start at its own heading.
+
+    When page-range extraction captures content from a previous section
+    (because the heading appears mid-page), the section's text may start
+    with unrelated content. This function finds the section's own heading
+    in its text and removes everything before it.
+
+    Only trims if the heading is found after the first few lines (i.e.,
+    there IS leading content that doesn't belong).
+    """
+    import re
+
+    trimmed = 0
+    for section_id, node in tree.nodes.items():
+        text = extracted.get(section_id, "")
+        if not text or len(text) < 50:
+            continue
+
+        # Search for the section's own heading
+        title = node.title
+        heading_pattern = (
+            r"^#{0,3}\s*\*{0,2}"
+            + re.escape(title)
+            + r"\*{0,2}\s*$"
+        )
+
+        matches = list(re.finditer(heading_pattern, text, re.MULTILINE | re.IGNORECASE))
+
+        if not matches:
+            continue
+
+        # If the heading is in the first 2 lines, the text is fine
+        first_match = matches[0]
+        lines_before = text[:first_match.start()].count('\n')
+        if lines_before <= 2:
+            continue
+
+        # Trim: keep everything from the heading onwards
+        trimmed_text = text[first_match.start():].strip()
+        if len(trimmed_text) >= 50:  # Don't trim to nothing
+            extracted[section_id] = trimmed_text
+            trimmed += 1
+            logger.debug(
+                f"Trimmed '{node.title}' to start at own heading "
+                f"(removed {lines_before} lines of preceding content)"
+            )
+
+    if trimmed:
+        logger.info(f"Trimmed {trimmed} sections to start at their own headings")
 
     return extracted
 
