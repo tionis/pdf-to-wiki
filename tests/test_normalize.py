@@ -130,3 +130,10 @@ class TestRepairText:
         assert "- " in result  # bullet normalized
         assert "{{page-ref:43}}" in result
         assert "\n\n\n" not in result
+
+    def test_marker_page_anchors_stripped(self):
+        text = 'Before <span id="page-178-0"></span> after'
+        result = repair_text(text)
+        assert '<span id="page-' not in result
+        assert 'Before' in result
+        assert 'after' in result

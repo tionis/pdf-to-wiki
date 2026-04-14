@@ -188,6 +188,20 @@ def split_markdown_by_headings(
             end_pos = len(lines)
         heading_ranges.append((pos, end_pos, level, title))
 
+    # Merge consecutive headings with the same normalized title.
+    # Marker sometimes emits the same heading twice: once for a table,
+    # once for body text. Merging keeps both together.
+    merged_ranges: list[tuple[int, int, int, str]] = []
+    for pos, end, level, title in heading_ranges:
+        if merged_ranges:
+            prev_pos, prev_end, prev_level, prev_title = merged_ranges[-1]
+            if _normalize_title(title) == _normalize_title(prev_title) and level == prev_level:
+                # Merge: extend previous range to cover this one too
+                merged_ranges[-1] = (prev_pos, end, prev_level, prev_title)
+                continue
+        merged_ranges.append((pos, end, level, title))
+    heading_ranges = merged_ranges
+
     # For each section, find the best matching heading
     result: dict[str, str] = {}
 

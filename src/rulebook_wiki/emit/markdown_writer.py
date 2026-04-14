@@ -223,52 +223,83 @@ def emit_global_index(config: WikiConfig) -> None:
 
 
 def _deduplicate_heading(body: str, section_title: str) -> str:
-    """Remove a leading heading from body text if it duplicates the section title.
+    """Remove headings from body text that duplicate the section title.
 
     When Marker extracts a section, its Markdown often begins with a heading
     like '# *Damage*' while our emitted heading is '# Damage'. This produces
-    duplicate headings. We strip the Marker heading if it matches.
+    duplicate headings. We strip leading Marker heading(s) that match.
+
+    Marker sometimes outputs the same section heading twice in a row
+    (e.g., once above a table, once above body text after a heading merge).
+    All consecutive matching headings at the start are stripped, and any
+    subsequent heading that exactly matches the section title is also removed
+    to avoid duplicate H1 headings in the rendered output.
     """
     import re
 
-    # Normalize: strip Markdown formatting chars for comparison
     title_clean = re.sub(r"[*_`\[\]()#]", "", section_title).strip().lower()
 
-    # Check if the first non-blank line is a heading
     lines = body.split("\n")
-    first_content_idx = 0
-    while first_content_idx < len(lines) and not lines[first_content_idx].strip():
-        first_content_idx += 1
+    result_lines: list[str] = []
 
-    if first_content_idx >= len(lines):
-        return body
+    # First pass: strip all consecutive leading headings that match
+    idx = 0
+    while idx < len(lines):
+        stripped = lines[idx].strip()
+        if not stripped:
+            result_lines.append(lines[idx])
+            idx += 1
+            continue
 
-    first_line = lines[first_content_idx]
-    m = re.match(r"^(#{1,6})\s+(.+)$", first_line)
-    if not m:
-        return body
+        m = re.match(r"^(#{1,6})\s+(.+)$", lines[idx])
+        if not m:
+            break  # Non-heading content — stop leading stripping
 
-    heading_text = re.sub(r"[*_`\[\]()]", "", m.group(2)).strip().lower()
+        heading_text = re.sub(r"[*_`\[\]()]", "", m.group(2)).strip().lower()
+        is_match = (
+            heading_text == title_clean
+            or heading_text.startswith(title_clean)
+            or title_clean.startswith(heading_text)
+        )
+        if not is_match and len(title_clean) >= 4 and len(heading_text) >= 4:
+            if title_clean in heading_text or heading_text in title_clean:
+                is_match = True
 
-    # Check match: exact, prefix, or substring (with minimum length)
-    is_match = (
-        heading_text == title_clean
-        or heading_text.startswith(title_clean)
-        or title_clean.startswith(heading_text)
-    )
-    # Also check if one contains the other with decent overlap
-    if not is_match and len(title_clean) >= 4 and len(heading_text) >= 4:
-        if title_clean in heading_text or heading_text in title_clean:
-            is_match = True
+        if not is_match:
+            break  # Non-matching heading — stop leading stripping
 
-    if is_match:
-        # Remove the heading line and any blank line after it
-        end_idx = first_content_idx + 1
-        while end_idx < len(lines) and not lines[end_idx].strip():
-            end_idx += 1
-        return "\n".join(lines[end_idx:]).strip()
+        # Strip this heading line
+        idx += 1
+        # Also skip blank line after stripped heading
+        while idx < len(lines) and not lines[idx].strip():
+            idx += 1
 
-    return body
+    # Second pass: collect remaining lines, removing duplicate title headings
+    while idx < len(lines):
+        stripped = lines[idx].strip()
+        if stripped:
+            m = re.match(r"^(#{1,6})\s+(.+)$", lines[idx])
+            if m:
+                heading_text = re.sub(r"[*_`\[\]()]", "", m.group(2)).strip().lower()
+                is_match = (
+                    heading_text == title_clean
+                    or heading_text.startswith(title_clean)
+                    or title_clean.startswith(heading_text)
+                )
+                if not is_match and len(title_clean) >= 4 and len(heading_text) >= 4:
+                    if title_clean in heading_text or heading_text in title_clean:
+                        is_match = True
+                if is_match:
+                    # Skip this duplicate heading and any blank line after it
+                    idx += 1
+                    while idx < len(lines) and not lines[idx].strip():
+                        idx += 1
+                    continue
+        result_lines.append(lines[idx])
+        idx += 1
+
+    text = "\n".join(result_lines).strip()
+    return text if text else body
 
 
 def _emit_book_index(

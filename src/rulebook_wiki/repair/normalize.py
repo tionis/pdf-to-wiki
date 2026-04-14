@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 
 def repair_text(text: str, tree: "SectionTree | None" = None, current_note_path: str | None = None) -> str:
     """Apply all repair/normalization steps to extracted text."""
+    text = clean_marker_artifacts(text)
     text = fix_ocr_word_breaks(text)
     text = normalize_bullets(text)
     text = normalize_whitespace(text)
@@ -27,6 +28,19 @@ def repair_text(text: str, tree: "SectionTree | None" = None, current_note_path:
     if tree is not None:
         from rulebook_wiki.repair.rewrite_refs import rewrite_page_references
         text = rewrite_page_references(text, tree, current_note_path=current_note_path)
+    return text
+
+
+def clean_marker_artifacts(text: str) -> str:
+    """Remove Marker-specific HTML artifacts from extracted text.
+
+    Marker inserts page-anchor spans like <span id="page-42-0"></span>
+    which are not needed in the wiki output.
+    """
+    # Remove page-anchor spans (self-closing or empty)
+    text = re.sub(r'<span\s+id="page-\d+-\d+"\s*>\s*</span>', '', text)
+    # Remove any leftover empty span tags
+    text = re.sub(r'<span\s*>\s*</span>', '', text)
     return text
 
 
