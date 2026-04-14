@@ -170,6 +170,56 @@ def _render_note(node: SectionNode, tree: SectionTree, source_pdf_path: str, ext
     return f"{fm_block}\n\n{heading}\n\n{body}\n"
 
 
+def emit_global_index(config: WikiConfig) -> None:
+    """Emit a global wiki index linking to all registered books."""
+    from rulebook_wiki.cache.db import CacheDB
+    from rulebook_wiki.models import PdfSource
+
+    db = CacheDB(config.resolved_cache_db_path())
+    artifacts = ArtifactStore(config.resolved_artifact_dir())
+
+    sources = db.list_pdf_sources()
+    db.close()
+
+    if not sources:
+        return
+
+    output_dir = config.resolved_output_dir()
+    index_path = output_dir / config.books_dir / "index.md"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = [
+        "# Rulebook Wiki",
+        "",
+        f"**{len(sources)} book{'s' if len(sources) != 1 else ''} in the library.**",
+        "",
+        "## Books",
+        "",
+    ]
+
+    for source in sources:
+        # Check if section tree exists
+        tree_data = artifacts.load_json(source.source_id, "section_tree")
+        chapter_count = 0
+        if tree_data:
+            tree = SectionTree(**tree_data)
+            chapter_count = len(tree.root_ids)
+
+        link_slug = f"{config.books_dir}/{source.source_id}"
+        desc = f"{source.page_count} pages"
+        if chapter_count:
+            desc += f", {chapter_count} chapters"
+        if source.title:
+            lines.append(f"- [[{link_slug}|{source.title}]] — {desc}")
+        else:
+            lines.append(f"- [[{link_slug}|{source.source_id}]] — {desc}")
+
+    lines.append("")
+
+    index_path.write_text("\n".join(lines), encoding="utf-8")
+    logger.info(f"Emitted global wiki index: {index_path}")
+
+
 def _deduplicate_heading(body: str, section_title: str) -> str:
     """Remove a leading heading from body text if it duplicates the section title.
 

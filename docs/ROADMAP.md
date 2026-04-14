@@ -54,7 +54,9 @@ Tested on Storypath Ultra Core Manual (257 pages, 450 TOC entries).
 - [x] `repair` CLI command (re-emits with repair applied)
 - [x] 103 tests passing
 - [x] Exclusion list for false-positive preventions ("much less" not joined)
-- [ ] Actual wiki-link rewriting (`{{page-ref:43}}` → `[[damage]]`)
+- [x] Actual wiki-link rewriting (`{{page-ref:43}}` → `[[combat/damage|Damage]]`)
+- [x] Heading deduplication (Marker heading vs emitted H1)
+- [x] 108 tests passing
 - [ ] OCR fallback for problematic pages (optional)
 - [ ] Preserve tables and images where possible
 - [ ] LLM-assisted structural disambiguation (cached, optional)

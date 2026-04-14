@@ -147,6 +147,57 @@ def emit_skeleton(ctx: click.Context, source_id: str, force: bool, force_step: s
         click.echo(f"  {sid} → {path}")
 
 
+@main.command(name="build-all")
+@click.option("--force", is_flag=True, help="Force re-run all steps for all PDFs")
+@click.option("--engine", default=None, help="Extraction engine: marker (default) or pymupdf")
+@click.pass_context
+def build_all(ctx: click.Context, force: bool, engine: str | None) -> None:
+    """Build the full wiki for all registered PDF sources."""
+    from rulebook_wiki.ingest.extract_toc import extract_toc
+    from rulebook_wiki.ingest.extract_page_labels import extract_page_labels as extract_pl
+    from rulebook_wiki.ingest.build_section_tree import build_section_tree
+    from rulebook_wiki.ingest.extract_text import extract_text
+    from rulebook_wiki.emit.markdown_writer import emit_skeleton, emit_global_index
+    from rulebook_wiki.cache.db import CacheDB
+
+    cfg = ctx.obj["config"]
+
+    # Get all registered PDFs
+    db = CacheDB(cfg.resolved_cache_db_path())
+    sources = db.list_pdf_sources()
+    db.close()
+
+    if not sources:
+        click.echo("No registered PDFs found. Run 'register' first.", err=True)
+        raise SystemExit(1)
+
+    click.echo(f"=== Building all ({len(sources)} PDFs) ===")
+    click.echo()
+
+    for src in sources:
+        source_id = src.source_id
+        click.echo(f"--- Building {source_id} ---")
+        step_force = force
+
+        # Run each step
+        try:
+            extract_toc(source_id, cfg, force=step_force)
+            extract_pl(source_id, cfg, force=step_force)
+            build_section_tree(source_id, cfg, force=step_force)
+            extract_text(source_id, cfg, force=step_force, engine=engine)
+            emit_skeleton(source_id, cfg, force=force)
+            click.echo(f"  {source_id}: done")
+        except Exception as e:
+            click.echo(f"  {source_id}: FAILED - {e}", err=True)
+
+        click.echo()
+
+    # Generate global wiki index
+    click.echo("Generating global wiki index...")
+    emit_global_index(cfg)
+    click.echo("\n=== All builds complete ===")
+
+
 @main.command(name="repair")
 @click.argument("source_id")
 @click.option("--force", is_flag=True, help="Force re-emission with repair")

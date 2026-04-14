@@ -20,47 +20,30 @@ logger = get_logger(__name__)
 def rewrite_page_references(
     text: str,
     tree: SectionTree,
+    all_trees: dict[str, SectionTree] | None = None,
 ) -> str:
     """Rewrite {{page-ref:N}} annotations to Obsidian wiki-links.
 
     For each {{page-ref:N}}, find the section whose page range covers
-    printed page N, and replace with [[section-slug|Section Title]].
+    printed page number N, and replace with [[section-slug|Section Title]].
 
     If multiple sections match (e.g., chapter-level sections), prefer
     leaf sections (no children) for more specific links.
 
-    If no section matches, leave the annotation as-is.
+    If no section matches in the current tree, and all_trees is provided,
+    search other books' section trees for a match.
+
+    If no section matches anywhere, leave the annotation as-is.
     """
-    # Build a lookup: printed page number → list of (section_id, title, is_leaf)
-    page_to_sections: dict[int, list[tuple[str, str, bool]]] = {}
+    # Build lookup for the primary tree
+    page_to_sections, pdf_page_to_sections = _build_page_lookup(tree)
 
-    for section_id, node in tree.nodes.items():
-        # Use printed page labels if available, else pdf page index
-        if node.printed_page_start is not None:
-            start = _parse_page_label(node.printed_page_start)
-            end = _parse_page_label(node.printed_page_end or node.printed_page_start)
-        else:
-            start = node.pdf_page_start
-            end = node.pdf_page_end
-
-        if start is None or end is None:
-            continue
-
-        is_leaf = len(node.children) == 0
-
-        for page in range(start, end + 1):
-            if page not in page_to_sections:
-                page_to_sections[page] = []
-            page_to_sections[page].append((section_id, node.title, is_leaf))
-
-    # Also build a pdf-page-index lookup (using 0-based pdf_page_start/End)
-    pdf_page_to_sections: dict[int, list[tuple[str, str, bool]]] = {}
-    for section_id, node in tree.nodes.items():
-        is_leaf = len(node.children) == 0
-        for page in range(node.pdf_page_start, node.pdf_page_end + 1):
-            if page not in pdf_page_to_sections:
-                pdf_page_to_sections[page] = []
-            pdf_page_to_sections[page].append((section_id, node.title, is_leaf))
+    # Build lookups for all trees (cross-book resolution)
+    all_page_lookups: dict[str, tuple[dict, dict]] = {}
+    if all_trees:
+        for sid, t in all_trees.items():
+            if sid != tree.source_id:
+                all_page_lookups[sid] = _build_page_lookup(t)
 
     def _replace_ref(m):
         page_str = m.group(1)
@@ -68,8 +51,9 @@ def rewrite_page_references(
         if page_num is None:
             return m.group(0)  # Keep original if can't parse
 
-        # Try printed page labels first
+        # Try current tree first
         sections = page_to_sections.get(page_num, [])
+        source_prefix = ""  # Same book, no prefix needed
 
         # If not found, try as PDF page index (0-based)
         if not sections:
@@ -79,8 +63,21 @@ def rewrite_page_references(
             except ValueError:
                 pass
 
+        # If not found in current tree, search other books
+        if not sections and all_page_lookups:
+            for other_sid, (other_page, other_pdf) in all_page_lookups.items():
+                sections = other_page.get(page_num, [])
+                if not sections:
+                    try:
+                        sections = other_pdf.get(int(page_str), [])
+                    except ValueError:
+                        pass
+                if sections:
+                    source_prefix = f"{other_sid}/"
+                    break
+
         if not sections:
-            # No matching section — keep the annotation
+            # No matching section anywhere — keep the annotation
             return m.group(0)
 
         # Prefer leaf sections for more specific links
@@ -99,9 +96,46 @@ def rewrite_page_references(
         else:
             slug = section_id
 
-        return f"[[{slug}|{title}]]"
+        # Use source_prefix for cross-book links
+        if source_prefix:
+            return f"[[{source_prefix}{slug}|{title}]]"
+        else:
+            return f"[[{slug}|{title}]]"
 
     return re.sub(r"\{\{page-ref:(\d+(?:-\d+)?)\}\}", _replace_ref, text)
+
+
+def _build_page_lookup(tree: SectionTree) -> tuple[dict, dict]:
+    """Build page-number → section lookup tables from a section tree.
+
+    Returns (page_to_sections, pdf_page_to_sections).
+    """
+    page_to_sections: dict[int, list[tuple[str, str, bool]]] = {}
+    pdf_page_to_sections: dict[int, list[tuple[str, str, bool]]] = {}
+
+    for section_id, node in tree.nodes.items():
+        # Use printed page labels if available, else pdf page index
+        if node.printed_page_start is not None:
+            start = _parse_page_label(node.printed_page_start)
+            end = _parse_page_label(node.printed_page_end or node.printed_page_start)
+        else:
+            start = node.pdf_page_start
+            end = node.pdf_page_end
+
+        is_leaf = len(node.children) == 0
+
+        if start is not None and end is not None:
+            for page in range(start, end + 1):
+                if page not in page_to_sections:
+                    page_to_sections[page] = []
+                page_to_sections[page].append((section_id, node.title, is_leaf))
+
+        for page in range(node.pdf_page_start, node.pdf_page_end + 1):
+            if page not in pdf_page_to_sections:
+                pdf_page_to_sections[page] = []
+            pdf_page_to_sections[page].append((section_id, node.title, is_leaf))
+
+    return page_to_sections, pdf_page_to_sections
 
 
 def _parse_page_label(label: str) -> int | None:
