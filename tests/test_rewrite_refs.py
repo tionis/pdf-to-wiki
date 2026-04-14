@@ -32,7 +32,7 @@ class TestRewritePageReferences:
         tree = SectionTree(source_id="test-book", nodes=nodes, root_ids=["test-book/combat/damage"])
         text = "See {{page-ref:44}} for details"
         result = rewrite_page_references(text, tree)
-        assert "[[combat/damage|Damage]]" in result
+        assert "[[test-book/combat/damage|Damage]]" in result
         assert "{{page-ref:44}}" not in result
 
     def test_multiple_sections_prefers_leaf(self):
@@ -50,7 +50,7 @@ class TestRewritePageReferences:
         text = "See {{page-ref:44}}"
         result = rewrite_page_references(text, tree)
         # Should prefer the leaf section "Damage" over parent "Combat"
-        assert "[[combat/damage|Damage]]" in result
+        assert "[[test-book/combat/damage|Damage]]" in result
 
     def test_no_matching_section(self):
         nodes = {
@@ -78,8 +78,8 @@ class TestRewritePageReferences:
         )
         text = "See {{page-ref:43}} and {{page-ref:44}}"
         result = rewrite_page_references(text, tree)
-        assert "[[combat/defense|Defense]]" in result
-        assert "[[combat/damage|Damage]]" in result
+        assert "[[test-book/combat/defense|Defense]]" in result
+        assert "[[test-book/combat/damage|Damage]]" in result
 
     def test_no_tree(self):
         """Without tree, references should remain as annotations."""

@@ -88,19 +88,21 @@ def rewrite_page_references(
             chosen = sections[0]
 
         section_id, title, _ = chosen
-        # Generate the Obsidian link slug (without source_id prefix)
-        # The slug path is the part after source_id/
+        # Generate the Obsidian link path including source_id namespace.
+        # This matches the file layout: books/source_id/chapter/section.md
+        # The slug path is the part after source_id/ in the section_id.
         parts = section_id.split("/", 1)
         if len(parts) > 1:
             slug = parts[1]
         else:
             slug = section_id
 
-        # Use source_prefix for cross-book links
+        # For same-book links, include source_id prefix to match file paths.
+        # For cross-book links, the source_prefix already contains the other book's source_id.
         if source_prefix:
             return f"[[{source_prefix}{slug}|{title}]]"
         else:
-            return f"[[{slug}|{title}]]"
+            return f"[[{tree.source_id}/{slug}|{title}]]"
 
     return re.sub(r"\{\{page-ref:(\d+(?:-\d+)?)\}\}", _replace_ref, text)
 
