@@ -193,11 +193,11 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
   - Key files: `src/pdf_to_wiki/models.py`, `src/pdf_to_wiki/ingest/extract_text.py`
 
 - [ ] Repair pipeline: handle `Wordp. N` pattern (no space before `p.`)
-  - Current regex: `re.compile(r'p\.\s+(\d+)')` requires whitespace before `p.`
+  - Current regex in `normalize.py` line 348: `r"\b[pP]{1,2}\.\s*(\d+(?:\s*[-–]\s*\d+)?)\b"` requires word boundary before `p.`
   - Misses cases like `Parkourp. 48` where bold term is adjacent to page ref
-  - Fix: add alternative pattern `(?<=[a-z])p\.\s*(\d+)` in `annotate_page_refs()`
+  - Fix: add alternative pattern `(?<=[a-z])p\.\s*(\d+)` after the main pattern in `normalize_bullets_and_refs()`
   - 2 instances found in CoD output
-  - Key file: `src/pdf_to_wiki/repair/rewrite_refs.py` (function `annotate_page_refs`)
+  - Key file: `src/pdf_to_wiki/repair/normalize.py` (function `normalize_bullets_and_refs`, line ~348)
 
 - [ ] HTML `<br>` tag pass-through in Marker table output
   - Marker emits `<br>` for intra-cell line breaks in pipe tables
