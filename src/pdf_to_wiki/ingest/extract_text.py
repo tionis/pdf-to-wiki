@@ -29,6 +29,8 @@ import pdf_to_wiki.extract.marker_engine  # noqa: F401
 from pdf_to_wiki.logging import get_logger
 from pdf_to_wiki.models import ProvenanceRecord, SectionTree
 
+import click
+
 logger = get_logger(__name__)
 
 
@@ -67,6 +69,19 @@ def extract_text(
             logger.info(f"Text extraction for {source_id} already cached. Use --force to re-extract.")
             db.close()
             return cached
+
+    # Dry-run: report what would be done without running extraction
+    if config.dry_run:
+        tree_data = artifacts.load_json(source_id, "section_tree")
+        if tree_data is None:
+            raise ValueError(f"No section tree for {source_id}. Run 'build-section-tree' first.")
+        tree = SectionTree(**tree_data)
+        non_empty = sum(1 for n in tree.nodes.values())
+        db.close()
+        engine_name = engine or config.extract_engine
+        click.echo(f"[DRY RUN] Would extract text for {len(tree.nodes)} sections from {source_id}")
+        click.echo(f"[DRY RUN]   Engine: {engine_name}")
+        return {section_id: "" for section_id in tree.nodes}
 
     # Resolve engine
     engine_name = engine or config.extract_engine

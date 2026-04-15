@@ -6,13 +6,13 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ## Current Status
 
-**Milestone 5 in progress.** The pipeline processes full rulebook PDFs through TOC extraction, section tree construction, text extraction (Marker or PyMuPDF), repair/normalization, and Markdown emission. Tables are preserved via Marker's native Markdown pipe-table output (37 sections with tables in CoD build). Multiple PDFs can be ingested into a shared wiki with proper namespacing. Internal links use standard Markdown relative links (`[Title](../path/to/section.md)`) for broad compatibility. Dingbats font characters (e.g., FantasyRPGDings `Y` → `•`) are remapped via per-PDF font manifest. TTRPG dot ratings (`•`, `••`, `•••`) are preserved. Marker sub-heading absorption ensures tables under unTOC'd headings are captured. Marker page-anchor spans and page-links are stripped. Mid-page section extraction uses font-size-based heading detection.
+**Milestone 5 nearly complete.** The pipeline processes full rulebook PDFs through TOC extraction, section tree construction, text extraction (Marker or PyMuPDF), repair/normalization, and Markdown emission. Tables are preserved via Marker's native Markdown pipe-table output (37 sections with tables in CoD build). Multiple PDFs can be ingested into a shared wiki with proper namespacing. Internal links use standard Markdown relative links (`[Title](../path/to/section.md)`) for broad compatibility. Dingbats font characters (e.g., FantasyRPGDings `Y` → `•`) are remapped via per-PDF font manifest. TTRPG dot ratings (`•`, `••`, `•••`) are preserved. Marker sub-heading absorption ensures tables under unTOC'd headings are captured. Marker page-anchor spans and page-links are stripped. Mid-page section extraction uses font-size-based heading detection. Build-time validation (`validate` command) checks for broken links, missing images, orphan files. `--dry-run`, `--sections`, and `--page-range` CLI filters enable selective processing. No-TOC PDFs are supported via font-size heading synthesis. Image alt text is populated from section titles for accessibility. HTML `<br>` in Marker tables is converted to ` / ` for broad Markdown compatibility. Joined game-term + page-ref patterns (`Parkourp. 48` → `Parkour p. 48`) are detected and annotated.
 
 **Tested on two large rulebooks:**
 - **Storypath Ultra Core Manual** (257 pages, 450 sections, 9 tables)
 - **Chronicles of Darkness** (301 pages, 521 sections, 37 table sections, 1.63M chars)
 
-**130 tests passing.**
+**151 tests passing.**
 
 ---
 
@@ -92,9 +92,16 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Image extraction from PDF and saving to `books/<source_id>/.assets/` hidden directory
 - [x] Image reference rewriting (Marker refs → note-relative paths, fallback matching, dedup by content hash)
 - [x] Marker artifact cleanup (page-anchor spans and page-links stripped)
-- [ ] Aliases and glossary extraction (game-specific terms auto-detected)
+- [x] Aliases and glossary extraction (game-specific terms auto-detected) → deferred to M6
 - [ ] Entity pages (spells, conditions, skills) as auto-generated stubs
 - [ ] LLM-assisted enrichment (cached, optional)
+- [x] Repair pipeline: handle `Wordp. N` pattern (joined game term + page ref)
+- [x] HTML `<br>` in Marker table output → converted to ` / `
+- [x] Build-time validation: `validate` CLI command (broken links, orphan files, missing images)
+- [x] Image alt text from section title context
+- [x] No-TOC PDF fallback (font-size heading detection)
+- [x] `--dry-run` mode
+- [x] `--sections` and `--page-range` filters
 
 ---
 
@@ -145,23 +152,16 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Image reference rewriting (Marker refs → note-relative paths, fallback matching, dedup by content hash)
 - [x] Stale output cleanup (remove orphan files on re-emission)
 - [x] Page-range fallback for unmatched sections (98.9% heading match rate: 515/521 sections)
-- [x] 130 tests passing
+- [x] 151 tests passing
+- [x] Repair: handle `Wordp. N` pattern (joined game term + page ref → insert space before `p.`)
+- [x] HTML `<br>` in Marker pipe tables → converted to ` / ` for broad Markdown compatibility
+- [x] `--dry-run` CLI flag: print what would be done without writing files
+- [x] `--sections` and `--page-range` CLI filters for selective emission
+- [x] `validate` CLI command: check broken links, missing images, orphan files, unresolved page refs
+- [x] No-TOC PDF fallback: font-size heading detection synthesizes TOC from PDF content
+- [x] Image alt text populated from section title for accessibility
 
 ### Next
-
-- [ ] Handle PDFs without embedded TOCs (fallback mode using page ranges)
-  - When PyMuPDF returns an empty TOC (`toc.json` is `[]`), the pipeline currently fails. Need a fallback that:
-    1. Detects empty TOC in `build_section_tree`
-    2. Creates sections from page ranges (e.g., one section per page or per N pages)
-    3. Uses font-size heuristics from PyMuPDF to detect headings as section boundaries
-    4. Alternative: use Marker's heading output to synthesize a TOC
-  - Key files: `src/pdf_to_wiki/ingest/build_section_tree.py`, `src/pdf_to_wiki/ingest/extract_toc.py`
-
-- [ ] Add `--dry-run` mode and `--sections`/`--page-range` CLI filters
-  - `--dry-run`: Print what would be done without writing files. Add a `dry_run` flag to `WikiConfig`, check in each stage before writing.
-  - `--sections`: Comma-separated list of section IDs or slugs to process. Filter `sections` list in `extract_text` and `emit_skeleton`.
-  - `--page-range`: Only process sections within the given page range. Filter by `pdf_page_start`/`pdf_page_end`.
-  - Key files: `src/pdf_to_wiki/cli.py`, `src/pdf_to_wiki/config.py`, `src/pdf_to_wiki/models.py`
 
 - [ ] Alias/glossary extraction from bold/italic game terms in body text
   - CoD output has 303 files with `**bold**` terms and 126 with `*italic*` terms.
@@ -191,32 +191,6 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
   - Structured schema would include: paragraphs, tables (as structured data, not pipe-text), image refs, bold/italic spans, page anchors
   - This enables richer downstream processing (glossary extraction, entity detection)
   - Key files: `src/pdf_to_wiki/models.py`, `src/pdf_to_wiki/ingest/extract_text.py`
-
-- [ ] Repair pipeline: handle `Wordp. N` pattern (no space before `p.`)
-  - Current regex in `normalize.py` line 348: `r"\b[pP]{1,2}\.\s*(\d+(?:\s*[-–]\s*\d+)?)\b"` requires word boundary before `p.`
-  - Misses cases like `Parkourp. 48` where bold term is adjacent to page ref
-  - Fix: add alternative pattern `(?<=[a-z])p\.\s*(\d+)` after the main pattern in `normalize_bullets_and_refs()`
-  - 2 instances found in CoD output
-  - Key file: `src/pdf_to_wiki/repair/normalize.py` (function `normalize_bullets_and_refs`, line ~348)
-
-- [ ] HTML `<br>` tag pass-through in Marker table output
-  - Marker emits `<br>` for intra-cell line breaks in pipe tables
-  - E.g., `| Fragile<br>Volatile | 102<br>102 |` — renders in some viewers but not all
-  - Options: (a) replace `<br>` with `\n` (breaks pipe table format), (b) keep as-is (works in GitHub), (c) use HTML tables instead of pipe tables for cells with breaks
-  - Best approach: probably keep as-is since GitHub renders `<br>` in tables, but add a repair option
-  - Key file: `src/pdf_to_wiki/repair/clean_text.py` (in `clean_marker_artifacts`)
-
-- [ ] Build-time validation: broken link checker, orphan file detection
-  - After emission, verify all `[Title](path.md)` links resolve to existing files
-  - Verify all `![](.assets/*.png)` image refs resolve
-  - Report orphan `.md` files not in the emit manifest
-  - Add as a new `validate` CLI command or a post-build step
-  - Key files: New `src/pdf_to_wiki/emit/validate.py`, `src/pdf_to_wiki/cli.py`
-
-- [ ] Image alt text from context (currently `![](.assets/...)` — add descriptive alt)
-  - All image references have empty alt text `![](.assets/page_N_picture_X.png)`
-  - Could be populated from: surrounding heading, adjacent paragraph, or Marker's image captions
-  - Low priority (accessibility improvement, not functional)
   - Key files: `src/pdf_to_wiki/extract/pdf_images.py`, `src/pdf_to_wiki/emit/markdown_writer.py`
 
 ### Deferred / Later
@@ -247,8 +221,8 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 1. **CacheDB connection management**: Currently opens/closes per command. Should use a shared connection pool or context manager in a long-running process.
 2. **Marker singleton**: The global `_marker_converter` and `_model_dict` are process-level singletons; not safe for multi-threaded use.
-3. **No dry-run mode**: The `--dry-run` flag is not yet implemented.
-4. **No `--sections` filter**: Cannot limit processing to specific sections.
+3. ~~No dry-run mode~~: ✅ Added — `--dry-run` flag prevents file writes.
+4. ~~No `--sections` filter~~: ✅ Added — `--sections` and `--page-range` filters.
 5. **Old output cleanup**: ✅ Fixed — `emit-skeleton --force` now removes stale files from previous runs.
 6. **table_extract.py not wired**: PyMuPDF table detection module exists but isn't integrated into the extraction pipeline; Marker handles tables natively.
 7. **6 sections with <50 chars**: Mostly character entries in fiction chapters (God Machine Chronicle NPCs) where content is under sub-headings in the Marker output. Low priority since these are narrative, not rules content.
@@ -257,6 +231,32 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 ---
 
 ## Change Log
+
+### 2025-04-18 — Roadmap items: validation, filters, repair fixes, no-TOC fallback
+
+- `validate` CLI command: post-build validation checking broken Markdown links,
+  missing image references, orphan .md files, and unresolved `{{page-ref:N}}` annotations.
+  New `src/pdf_to_wiki/emit/validate.py` module with `ValidationReport` dataclass.
+- `--dry-run` global CLI flag: reports what would be done without writing files.
+  Implemented in `emit_skeleton`, `extract_text`, and `build_section_tree`.
+  `dry_run` flag added to `WikiConfig`.
+- `--sections` and `--page-range` CLI filters on `build` and `emit-skeleton` commands:
+  section_filter matches by section_id, slug, or title substring;
+  page_filter restricts to sections overlapping a given page range.
+  New `_filter_sections()` helper in `markdown_writer.py`.
+- Repair: handle `Wordp. N` pattern (e.g., `Parkourp. 48` → `Parkour p. 48`)
+  in `annotate_page_references()` — preprocesses joined game-term + page-ref
+  patterns by inserting a space when the term starts with uppercase.
+- Repair: HTML `<br>` in Marker pipe tables converted to ` / ` in
+  `clean_marker_artifacts()` for broad Markdown compatibility.
+- No-TOC PDF fallback: `_synthesize_toc_from_headings()` in `extract_toc.py`
+  detects headings via font-size analysis (≥1.3× body text) and creates
+  a synthetic TOC when the PDF has no embedded bookmarks. Heading levels
+  estimated by relative size (2.0× → L1, 1.5× → L2, 1.3× → L3).
+- Image alt text populated from section title: `_rewrite_asset_paths()`
+  fills empty alt text `![](.assets/...)` with the section heading.
+  Existing non-empty alt text is preserved.
+- 151 tests passing (21 new: 7 normalize, 4 emit-filter, 1 dry-run, 6 validate, 3 alt-text)
 
 ### 2025-04-17 — Marker sub-heading absorption, CoD validation, extraction improvements
 

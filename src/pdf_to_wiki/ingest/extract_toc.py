@@ -57,6 +57,12 @@ def extract_toc(
     # Extract TOC
     doc = fitz.open(source.path)
     raw_toc = doc.get_toc()  # List of [level, title, page] where page is 1-based
+
+    # If no embedded TOC, synthesize one from font-size headings
+    if not raw_toc:
+        logger.info(f"No embedded TOC found in {source.path}. Synthesizing from font-size headings...")
+        raw_toc = _synthesize_toc_from_headings(doc, source.page_count)
+
     doc.close()
 
     entries: list[TocEntry] = []
@@ -93,3 +99,114 @@ def extract_toc(
     logger.info(f"Extracted {len(entries)} TOC entries for {source_id}")
     db.close()
     return entries
+
+
+def _synthesize_toc_from_headings(
+    doc: fitz.Document,
+    page_count: int,
+    min_pages_per_section: int = 1,
+) -> list[list[int, str, int]]:
+    """Synthesize a TOC from font-size heading detection when the PDF has no bookmarks.
+
+    Scans each page looking for text spans with font sizes significantly
+    larger than the body text. Lines with font size >= 1.3× the body text
+    are treated as headings.
+
+    Heading levels are estimated by relative font size:
+    - >= 2.0× body text → level 1 (chapter)
+    - >= 1.5× body text → level 2 (section)
+    - >= 1.3× body text → level 3 (subsection)
+
+    Returns:
+        List of [level, title, page_1based] entries compatible with
+        PyMuPDF's get_toc() format.
+    """
+    from collections import Counter
+
+    # First pass: determine body text font size
+    font_sizes = []
+    for page_num in range(min(page_count, 50)):
+        page = doc[page_num]
+        data = page.get_text("dict")
+        for block in data.get("blocks", []):
+            if "lines" not in block:
+                continue
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    if span["text"].strip() and not span["text"].strip().isdigit():
+                        font_sizes.append(span["size"])
+
+    if not font_sizes:
+        logger.warning("No text found in PDF; cannot synthesize TOC")
+        return []
+
+    body_size = Counter(font_sizes).most_common(1)[0][0]
+    logger.info(f"Body text font size: {body_size:.1f}")
+
+    # Second pass: detect headings
+    headings: list[tuple[int, str, int]] = []  # (level, title, page_0based)
+
+    for page_num in range(page_count):
+        page = doc[page_num]
+        data = page.get_text("dict")
+
+        for block in data.get("blocks", []):
+            if "lines" not in block:
+                continue
+            for line in block["lines"]:
+                line_text = ""
+                max_size = 0
+                for span in line["spans"]:
+                    text = span["text"].strip()
+                    if text:
+                        line_text += (" " if line_text else "") + text
+                        max_size = max(max_size, span["size"])
+
+                if not line_text or max_size < body_size * 1.3:
+                    continue
+
+                # Skip lines that are just page numbers
+                if line_text.strip().isdigit():
+                    continue
+
+                # Skip very short headings (likely running headers)
+                if len(line_text.strip()) < 3:
+                    continue
+
+                # Determine heading level based on relative font size
+                if max_size >= body_size * 2.0:
+                    level = 1
+                elif max_size >= body_size * 1.5:
+                    level = 2
+                else:
+                    level = 3
+
+                headings.append((level, line_text.strip(), page_num))
+
+    if not headings:
+        logger.warning("No headings detected in PDF; creating single-section TOC")
+        return [[1, "Document", 1]]
+
+    # Deduplicate consecutive same-page same-level headings
+    # (running headers on consecutive pages)
+    deduped = []
+    prev = None
+    for level, title, page in headings:
+        key = (level, title)
+        if key == prev:
+            continue  # Skip duplicate
+        prev = key
+        deduped.append([level, title, page + 1])  # Convert to 1-based page
+
+    # If we only got level 3 headings, promote them
+    levels = set(h[0] for h in deduped)
+    if levels == {3}:
+        deduped = [[1, t, p] for _, t, p in deduped]
+    elif levels == {2, 3} or levels == {3, 2}:
+        deduped = [
+            [1 if l == 2 else 2, t, p]
+            for l, t, p in deduped
+        ]
+
+    logger.info(f"Synthesized {len(deduped)} TOC entries from font-size headings")
+    return deduped

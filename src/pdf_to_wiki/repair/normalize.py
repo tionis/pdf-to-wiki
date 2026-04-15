@@ -79,6 +79,20 @@ def clean_marker_artifacts(text: str) -> str:
     text = re.sub(r'<span\s+id="page-\d+-\d+"\s*>\s*</span>', '', text)
     # Remove any leftover empty span tags
     text = re.sub(r'<span\s*>\s*</span>', '', text)
+
+    # Convert <br> in pipe tables to " / " for broad Markdown compatibility.
+    # Marker inserts <br> for multi-line content within pipe-table cells,
+    # e.g., | Fragile<br>Volatile |. GitHub renders <br> in tables, but
+    # many other Markdown renderers do not. Converting to " / " preserves
+    # the multi-value semantics while working in all renderers.
+    # Only replace <br> that appears within pipe-table rows (lines
+    # containing | delimiters), not in general HTML content.
+    def _br_in_table(line):
+        if '|' not in line:
+            return line
+        return re.sub(r'<br\s*/?>', ' / ', line, flags=re.IGNORECASE)
+
+    text = '\n'.join(_br_in_table(line) for line in text.split('\n'))
     return text
 
 
@@ -336,13 +350,29 @@ def annotate_page_references(text: str) -> str:
     """Detect and annotate page references like 'p. 43' or 'see page 12'.
 
     Wraps references in a special annotation format for later wiki-link
-    rewriting: [[page-ref:43]] becomes a link to the relevant section.
+    rewriting: {{page-ref:43}} becomes a link to the relevant section.
 
     This is a detection/annotation step. The actual wiki-link rewriting
     requires the section tree context and is done in a later step.
+
+    Handles both standalone references ("see p. 43") and joined references
+    where a game term runs into the page indicator ("Parkourp. 48").
+    The joined pattern is common in Marker output where bold game terms
+    are adjacent to page references with no separating space.
     """
+    result = text
+
+    # Pre-processing: separate joined Capitalized-term + page-ref patterns
+    # E.g., "Parkourp. 48" → "Parkour p. 48", "Crack Driverp. 47" → "Crack Driver p. 47"
+    # Only matches when the preceding word starts with uppercase (game term),
+    # which avoids false positives like "map. 12" (sentence period).
+    result = re.sub(
+        r"([A-Z]\w*?)p\.\s*(\d+(?:\s*[-–]\s*\d+)?)\b",
+        r"\1 p. \2",
+        result,
+    )
+
     # Pattern: "p. NN", "pp. NN-NN", "see page NN", "on page NN"
-    # Also "page NN" when not part of a different context
     patterns = [
         # "p. NN" or "pp. NN-NN"
         (r"\b[pP]{1,2}\.\s*(\d+(?:\s*[-–]\s*\d+)?)\b", r"{{page-ref:\1}}"),
@@ -350,7 +380,6 @@ def annotate_page_references(text: str) -> str:
         (r"\b(?:see|on|at|to)\s+page\s+(\d+)\b", r"{{page-ref:\1}}"),
     ]
 
-    result = text
     for pattern, replacement in patterns:
         result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
 

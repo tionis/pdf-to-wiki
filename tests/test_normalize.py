@@ -214,3 +214,55 @@ class TestCleanMarkerArtifacts:
         result = clean_marker_artifacts(text)
         assert "(#page-62-0)" not in result
         assert "Chapter Two, p. 62" in result
+
+    def test_br_in_table_converted(self):
+        """\u003cbr\u003e in pipe tables should be converted to ' / '."""
+        text = "| Fragile\u003cbr\u003eVolatile | 102\u003cbr\u003e102 |"
+        result = clean_marker_artifacts(text)
+        assert "\u003cbr" not in result
+        assert "Fragile / Volatile" in result
+
+    def test_br_in_paragraph_preserved(self):
+        """\u003cbr\u003e outside of tables should be left alone (unless it's a block element)."""
+        text = "Some text\u003cbr\u003eMore text"
+        result = clean_marker_artifacts(text)
+        # \u003cbr\u003e outside tables is left as-is (no | delimiters)
+        assert '\u003cbr' in result
+
+    def test_br_case_insensitive(self):
+        """\u003cBR\u003e and \u003cbr/\u003e variants should be handled."""
+        text = "| A\u003cBR\u003eB | C\u003cbr/\u003eD |"
+        result = clean_marker_artifacts(text)
+        assert "\u003cbr" not in result.lower().replace("/", "")
+        assert "A / B" in result
+        assert "C / D" in result
+
+
+class TestAnnotatePageReferencesExtended:
+    """Tests for the Wordp. N pattern fix and edge cases."""
+
+    def test_capitalized_term_joined_page_ref(self):
+        """'Parkourp. 48' should be split and annotated."""
+        text = "**Parkourp. 48**"
+        result = annotate_page_references(text)
+        assert "{{page-ref:48}}" in result
+        assert "Parkour" in result
+
+    def test_multiword_term_joined_page_ref(self):
+        """'Driverp. 47' from 'Crack Driverp. 47' should be split."""
+        text = "Crack Driverp. 47 for details"
+        result = annotate_page_references(text)
+        assert "{{page-ref:47}}" in result
+
+    def test_lowercase_word_not_stripped(self):
+        """'map. 12' (sentence ending) should NOT be treated as a page ref."""
+        text = "Use the map. 12 goblins appear."
+        result = annotate_page_references(text)
+        # 'map.' is a common word, not a game term — should not be annotated
+        assert "{{page-ref:12}}" not in result
+
+    def test_standalone_page_ref_still_works(self):
+        """Normal 'p. 43' should still be annotated after the fix."""
+        text = "See p. 43 for details"
+        result = annotate_page_references(text)
+        assert "{{page-ref:43}}" in result

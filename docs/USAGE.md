@@ -127,7 +127,19 @@ Emit Markdown files from the section tree with YAML frontmatter.
 
 ```bash
 pdf-to-wiki emit-skeleton my-rulebook
+
+# Only emit specific sections
+pdf-to-wiki emit-skeleton my-rulebook --sections "combat,magic"
+
+# Only emit sections in page range 10-50
+pdf-to-wiki emit-skeleton my-rulebook --page-range 10-50
 ```
+
+Options:
+- `--force` — Force re-emission
+- `--force-step <step>` — Force re-run of a specific step
+- `--sections <list>` — Comma-separated section IDs/slugs/titles to include
+- `--page-range START-END` — Only process sections within page range
 
 ### `pdf-to-wiki build`
 
@@ -142,6 +154,15 @@ pdf-to-wiki build my-rulebook --engine pymupdf
 
 # Skip extraction entirely (skeleton only)
 pdf-to-wiki build my-rulebook --skip-extract
+
+# Dry run — print what would be done without writing files
+pdf-to-wiki --dry-run build my-rulebook
+
+# Only emit specific sections
+pdf-to-wiki build my-rulebook --sections "combat,magic"
+
+# Only process sections in page range 10-50
+pdf-to-wiki build my-rulebook --page-range 10-50
 ```
 
 Options:
@@ -149,12 +170,34 @@ Options:
 - `--force-step <step>` — Force re-run a specific step
 - `--engine marker|pymupdf` — Override extraction engine
 - `--skip-extract` — Skip text extraction
+- `--sections <list>` — Comma-separated section IDs/slugs/titles to include
+- `--page-range START-END` — Only process sections within page range
+
+### `pdf-to-wiki validate`
+
+Validate an emitted wiki for issues: broken links, missing images, orphan files, unresolved page references.
+
+```bash
+# Validate a specific book
+pdf-to-wiki validate my-rulebook
+
+# Validate all books
+pdf-to-wiki validate --all
+```
+
+Returns exit code 1 if any issues are found. The command reports:
+- Broken Markdown links (`[Title](path.md)` where path.md doesn't exist)
+- Broken image references (`![](.assets/img.png)` where img doesn't exist)
+- Orphan `.md` files not in the emit manifest
+- Unresolved `{{page-ref:N}}` annotations left in the text
 
 ## Global Options
 
 - `--config <path>` — Path to a configuration TOML file
 - `--output-dir <dir>` — Override output directory
 - `--cache-dir <dir>` — Override cache directory
+- `--dry-run` — Print what would be done without writing files
+  (works with `build`, `emit-skeleton`, `extract` commands)
 
 ## Configuration
 

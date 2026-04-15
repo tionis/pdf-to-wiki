@@ -39,6 +39,21 @@ The `repair` command re-emits Markdown with the following transformations applie
 5. **Page reference rewriting** — `{{page-ref:43}}` → `[Section Title](../path/section.md)` using section tree lookup (cross-book)
 6. **Duplicate heading deduplication** — Remove headings matching section title
 7. **Marker artifact cleanup** — Strip `<span id="page-N-M">` page anchors and `[\(p.21\)](#page-21-0)` page-links
+8. **<br> in tables** — Convert `<br>` in pipe tables to ` / ` for broad Markdown compatibility
+9. **Joined page refs** — Separate joined game-term + page-ref patterns (e.g., `Parkourp. 48` → `Parkour p. 48`) before annotation
+
+### Validation Pipeline (post-build)
+
+The `validate` command checks the emitted wiki for issues:
+
+1. **Broken Markdown links** — `[Title](path.md)` references that don't resolve to existing files
+2. **Broken image references** — `![](.assets/img.png)` where the image doesn't exist
+3. **Orphan .md files** — Files in the output directory not in the emit manifest
+4. **Unresolved page refs** — `{{page-ref:N}}` annotations left in the text after repair
+
+### No-TOC Fallback
+
+When a PDF has no embedded bookmarks, `extract_toc()` automatically falls back to font-size heading detection via `_synthesize_toc_from_headings()`. This scans the PDF for text spans with font sizes significantly larger than body text and creates synthetic TOC entries with estimated heading levels (≥2.0× body → L1, ≥1.5× → L2, ≥1.3× → L3).
 
 ## Extraction Engine Architecture
 
@@ -178,8 +193,9 @@ src/pdf_to_wiki/
 │   ├── normalize.py      # OCR repair, bullets, whitespace
 │   └── rewrite_refs.py   # Page-ref annotation/rewriting to Markdown links
 ├── emit/
-│   ├── markdown_writer.py  # Markdown emission (frontmatter, asset paths, stale cleanup)
-│   └── obsidian_paths.py   # Deterministic path generation
+│   ├── markdown_writer.py  # Markdown emission (frontmatter, asset paths, stale cleanup, section/page filters)
+│   ├── obsidian_paths.py   # Deterministic path generation
+│   └── validate.py         # Post-build validation (broken links, orphan files, missing images)
 ├── llm/                 # (Stub) Future: Ollama-backed enrichment
 ├── cache/
 │   ├── db.py            # SQLite cache database
@@ -237,3 +253,7 @@ data/outputs/wiki/
 10. **Parent sections are clipped** — Parents only include content from pages before their first child starts, preventing massive duplication in the wiki output.
 11. **Portable frontmatter** — `source_pdf` uses `filename.pdf (sha256:hash)` instead of absolute filesystem paths, making wikis portable across machines.
 12. **Two-layer wiki model (future).** Layer 1: per-source trees preserving the original book structure. Layer 2: global semantic overlay with shared concepts and cross-links.
+13. **No-TOC PDF fallback.** When a PDF has no embedded bookmarks, font-size heading detection synthesizes a TOC automatically.
+14. **Image alt text from context.** Empty image alt text is populated from the section title for accessibility.
+15. **HTML `<br>` in tables.** Converted to ` / ` for broad Markdown compatibility — works in GitHub, GitLab, and CommonMark renderers.
+16. **Joined game-term + page refs.** When a capitalised game term runs into a page reference (e.g., `Parkourp. 48`), the space is inserted so the standard page-ref regex can match.

@@ -21,6 +21,8 @@ from pdf_to_wiki.config import WikiConfig
 from pdf_to_wiki.logging import get_logger
 from pdf_to_wiki.models import PageLabel, ProvenanceRecord, SectionNode, SectionTree, TocEntry
 
+import click
+
 logger = get_logger(__name__)
 
 
@@ -52,6 +54,13 @@ def build_section_tree(
             tree = SectionTree(**cached)
             db.close()
             return tree
+
+    # Dry-run: report what would be done without building
+    if config.dry_run:
+        click.echo(f"[DRY RUN] Would build section tree for {source_id}")
+        click.echo(f"[DRY RUN]   Source: {source.path} ({source.page_count} pages)")
+        db.close()
+        return SectionTree(source_id=source_id)
 
     manifests.mark_running(source_id, "section_tree")
 

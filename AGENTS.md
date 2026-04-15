@@ -47,7 +47,7 @@ These are **non-negotiable** unless explicitly reconsidered:
   - `AGENTS.md` (if agent-facing conventions change)
 - **Run the test suite** before declaring work done: `uv run pytest tests/ -v`
 - **Tests must use `engine="pymupdf"`** — Marker requires ML models and takes minutes per test.
-- **130 tests passing** — run `uv run pytest tests/ -q` to verify.
+- **151 tests passing** — run `uv run pytest tests/ -q` to verify.
 
 ---
 
@@ -125,9 +125,10 @@ pdf-to-wiki emit-skeleton <source_id> # Emit Markdown skeleton
 pdf-to-wiki build <source_id>         # Run full pipeline (6 steps)
 pdf-to-wiki build-all                  # Build all registered PDFs + global index
 pdf-to-wiki repair <source_id>        # Re-emit with repair/normalization
+pdf-to-wiki validate <source_id>       # Check for broken links, missing images, orphans
 ```
 
-Common flags: `--force`, `--force-step <step>`, `--engine <name>`, `--skip-extract`, `--config <path>`, `--output-dir <dir>`, `--cache-dir <dir>`
+Common flags: `--force`, `--force-step <step>`, `--engine <name>`, `--skip-extract`, `--dry-run`, `--sections <list>`, `--page-range START-END`, `--config <path>`, `--output-dir <dir>`, `--cache-dir <dir>`
 
 ---
 

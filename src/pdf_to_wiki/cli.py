@@ -11,8 +11,9 @@ from pdf_to_wiki.config import load_config
 @click.option("--config", "config_path", default=None, help="Path to config TOML file")
 @click.option("--output-dir", default=None, help="Override output directory")
 @click.option("--cache-dir", default=None, help="Override cache directory")
+@click.option("--dry-run", is_flag=True, help="Print what would be done without writing files")
 @click.pass_context
-def main(ctx: click.Context, config_path: str | None, output_dir: str | None, cache_dir: str | None) -> None:
+def main(ctx: click.Context, config_path: str | None, output_dir: str | None, cache_dir: str | None, dry_run: bool) -> None:
     """PDF-to-Wiki — convert PDF rulebooks into structured Markdown wikis."""
     ctx.ensure_object(dict)
     cfg = load_config(config_path)
@@ -21,6 +22,8 @@ def main(ctx: click.Context, config_path: str | None, output_dir: str | None, ca
     if cache_dir is not None:
         cfg.cache_db_path = f"{cache_dir}/cache.db"
         cfg.artifact_dir = f"{cache_dir}/artifacts"
+    if dry_run:
+        cfg.dry_run = True
     ctx.obj["config"] = cfg
 
 
@@ -134,13 +137,17 @@ def extract(ctx: click.Context, source_id: str, force: bool, engine: str | None)
 @click.argument("source_id")
 @click.option("--force", is_flag=True, help="Force re-emission")
 @click.option("--force-step", default=None, help="Force re-run of a specific step")
+@click.option("--sections", default=None, help="Comma-separated section IDs or slugs to process")
+@click.option("--page-range", default=None, help="Only process sections within page range (e.g., '10-50')")
 @click.pass_context
-def emit_skeleton(ctx: click.Context, source_id: str, force: bool, force_step: str | None) -> None:
+def emit_skeleton(ctx: click.Context, source_id: str, force: bool, force_step: str | None, sections: str | None, page_range: str | None) -> None:
     """Emit Markdown skeleton files from the section tree."""
     from pdf_to_wiki.emit.markdown_writer import emit_skeleton
 
     cfg = ctx.obj["config"]
-    manifest = emit_skeleton(source_id, cfg, force=force, force_step=force_step)
+    section_filter = [s.strip() for s in sections.split(",")] if sections else None
+    page_filter = _parse_page_range(page_range) if page_range else None
+    manifest = emit_skeleton(source_id, cfg, force=force, force_step=force_step, section_filter=section_filter, page_filter=page_filter)
     click.echo(f"Emitted {len(manifest)} Markdown notes for {source_id}")
     click.echo()
     for sid, path in sorted(manifest.items()):
@@ -211,14 +218,41 @@ def repair(ctx: click.Context, source_id: str, force: bool) -> None:
     click.echo(f"Repaired and re-emitted {len(manifest)} notes for {source_id}")
 
 
+@main.command(name="validate")
+@click.argument("source_id", required=False)
+@click.option("--all", "validate_all_flag", is_flag=True, help="Validate all registered PDFs")
+@click.pass_context
+def validate(ctx: click.Context, source_id: str | None, validate_all_flag: bool) -> None:
+    """Validate emitted wiki for broken links, missing images, and orphans."""
+    from pdf_to_wiki.emit.validate import validate_wiki, validate_all as v_all
+
+    cfg = ctx.obj["config"]
+
+    if validate_all_flag:
+        reports = v_all(cfg)
+        for sid, report in reports.items():
+            click.echo(report.summary())
+            click.echo()
+    elif source_id:
+        report = validate_wiki(source_id, cfg)
+        click.echo(report.summary())
+        if not report.is_clean:
+            raise SystemExit(1)
+    else:
+        click.echo("Provide a source_id or use --all", err=True)
+        raise SystemExit(1)
+
+
 @main.command(name="build")
 @click.argument("source_id")
 @click.option("--force", is_flag=True, help="Force re-run all steps")
 @click.option("--force-step", default=None, help="Force re-run of a specific step")
 @click.option("--skip-extract", is_flag=True, help="Skip text extraction step (emit skeleton only)")
 @click.option("--engine", default=None, help="Extraction engine: marker (default) or pymupdf")
+@click.option("--sections", default=None, help="Comma-separated section IDs or slugs to process")
+@click.option("--page-range", default=None, help="Only process sections within page range (e.g., '10-50')")
 @click.pass_context
-def build(ctx: click.Context, source_id: str, force: bool, force_step: str | None, skip_extract: bool, engine: str | None) -> None:
+def build(ctx: click.Context, source_id: str, force: bool, force_step: str | None, skip_extract: bool, engine: str | None, sections: str | None, page_range: str | None) -> None:
     """Run the full pipeline for a registered PDF source."""
     from pdf_to_wiki.ingest.extract_toc import extract_toc
     from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels as extract_pl
@@ -229,6 +263,8 @@ def build(ctx: click.Context, source_id: str, force: bool, force_step: str | Non
 
     cfg = ctx.obj["config"]
     step_force = force or (force_step is not None)
+    section_filter = [s.strip() for s in sections.split(",")] if sections else None
+    page_filter = _parse_page_range(page_range) if page_range else None
 
     # Verify the PDF is registered
     db = CacheDB(cfg.resolved_cache_db_path())
@@ -258,7 +294,7 @@ def build(ctx: click.Context, source_id: str, force: bool, force_step: str | Non
         click.echo("Step 4/6: Skipping text extraction (--skip-extract)")
 
     click.echo("Step 5/6: Emitting Markdown notes...")
-    manifest = emit_skeleton(source_id, cfg, force=force, force_step=force_step)
+    manifest = emit_skeleton(source_id, cfg, force=force, force_step=force_step, section_filter=section_filter, page_filter=page_filter)
 
     click.echo("Step 6/6: Done!")
     click.echo(f"\n=== Build complete: {len(manifest)} notes emitted ===")
@@ -266,3 +302,14 @@ def build(ctx: click.Context, source_id: str, force: bool, force_step: str | Non
 
 if __name__ == "__main__":
     main()
+
+
+def _parse_page_range(pr: str) -> tuple[int, int]:
+    """Parse a page range string like '10-50' or '10' into (start, end)."""
+    parts = pr.split("-", 1)
+    try:
+        start = int(parts[0].strip())
+        end = int(parts[1].strip()) if len(parts) > 1 else start
+        return (start, end)
+    except ValueError:
+        raise click.BadParameter(f"Invalid page range: {pr!r}. Use format 'START-END' or 'PAGE'.") from None

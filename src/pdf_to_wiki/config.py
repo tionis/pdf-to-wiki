@@ -27,6 +27,7 @@ class WikiConfig:
     extract_engine: str = "marker"
     obsidian_emit_frontmatter: bool = True
     obsidian_emit_index_notes: bool = True
+    dry_run: bool = False
 
     def resolved_output_dir(self) -> Path:
         return Path(self.output_dir).resolve()
@@ -82,6 +83,7 @@ def _apply_toml(cfg: WikiConfig, data: dict) -> None:
         wiki = data["wiki"]
         cfg.output_dir = wiki.get("output_dir", cfg.output_dir)
         cfg.books_dir = wiki.get("books_dir", cfg.books_dir)
+        cfg.dry_run = wiki.get("dry_run", cfg.dry_run)
 
     if "cache" in data:
         cache = data["cache"]

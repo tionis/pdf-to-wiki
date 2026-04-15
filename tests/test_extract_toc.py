@@ -63,13 +63,15 @@ class TestExtractToc:
             extract_toc("nonexistent", config)
 
     def test_extract_toc_no_toc(self, tmp_path: Path, config: WikiConfig):
-        """PDF with no bookmarks should return empty list."""
+        """PDF with no bookmarks should synthesize a fallback TOC."""
         pdf_path = tmp_path / "book.pdf"
         create_test_pdf(pdf_path, toc_entries=None)
 
         register_pdf(str(pdf_path), config)
         entries = extract_toc("book", config)
-        assert entries == []
+        # When no TOC is found, we synthesize a single-section fallback
+        assert len(entries) >= 1
+        assert entries[0].level == 1
 
 class TestTocTitleNormalization:
     def test_newlines_collapsed(self, tmp_path: Path, config: WikiConfig):

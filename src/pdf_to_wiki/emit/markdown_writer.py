@@ -22,6 +22,8 @@ from pdf_to_wiki.emit.obsidian_paths import section_note_path, relative_markdown
 from pdf_to_wiki.logging import get_logger
 from pdf_to_wiki.models import ProvenanceRecord, SectionNode, SectionTree
 
+import click
+
 logger = get_logger(__name__)
 
 
@@ -30,11 +32,23 @@ def emit_skeleton(
     config: WikiConfig,
     force: bool = False,
     force_step: str | None = None,
+    section_filter: list[str] | None = None,
+    page_filter: tuple[int, int] | None = None,
 ) -> dict[str, str]:
     """Emit Markdown skeleton files from the cached section tree.
 
     If extracted text is available (from the extract step), it will be
     included in each section's note body. Otherwise, a placeholder is used.
+
+    Args:
+        source_id: The registered PDF source ID.
+        config: Pipeline configuration.
+        force: Force re-emission even if cached.
+        force_step: Force re-run of a specific pipeline step.
+        section_filter: Optional list of section IDs or slugs to include.
+            If provided, only matching sections are emitted.
+        page_filter: Optional (start, end) page range (0-based) to include.
+            If provided, only sections within this page range are emitted.
 
     Returns a dict mapping section_id → relative output path.
     """
@@ -57,6 +71,22 @@ def emit_skeleton(
             db.close()
             return cached
 
+    # Dry-run: report what would be done without writing files
+    if config.dry_run:
+        tree_data = artifacts.load_json(source_id, "section_tree")
+        if tree_data is None:
+            raise ValueError(f"No section tree for {source_id}. Run 'build-section-tree' first.")
+        tree = SectionTree(**tree_data)
+        extracted_text = artifacts.load_json(source_id, "extract_text")
+        has_text = extracted_text is not None
+        db.close()
+        click.echo(f"[DRY RUN] Would emit {len(tree.nodes)} Markdown notes for {source_id}")
+        click.echo(f"[DRY RUN]   Extracted text available: {has_text}")
+        for section_id, node in tree.nodes.items():
+            rel_path = section_note_path(node, tree, config.books_dir)
+            click.echo(f"[DRY RUN]   {section_id} → {rel_path}")
+        return {sid: section_note_path(n, tree, config.books_dir) for sid, n in tree.nodes.items()}
+
     manifests.mark_running(source_id, step)
 
     # Load section tree
@@ -64,6 +94,13 @@ def emit_skeleton(
     if tree_data is None:
         raise ValueError(f"No section tree for {source_id}. Run 'build-section-tree' first.")
     tree = SectionTree(**tree_data)
+
+    # Apply section/page filters
+    sections_to_emit = _filter_sections(tree, section_filter, page_filter)
+    if sections_to_emit is not None:
+        logger.info(f"Filtering: {len(sections_to_emit)}/{len(tree.nodes)} sections match filters")
+    else:
+        sections_to_emit = list(tree.nodes.keys())
 
     # Load extracted text if available
     extracted_text: dict[str, str] | None = artifacts.load_json(source_id, "extract_text")
@@ -79,7 +116,8 @@ def emit_skeleton(
     output_dir = config.resolved_output_dir()
     emit_manifest: dict[str, str] = {}
 
-    for section_id, node in tree.nodes.items():
+    for section_id in sections_to_emit:
+        node = tree.nodes[section_id]
         rel_path = section_note_path(node, tree, config.books_dir)
         abs_path = output_dir / rel_path
         abs_path.parent.mkdir(parents=True, exist_ok=True)
@@ -91,7 +129,7 @@ def emit_skeleton(
             section_text = repair_text(section_text, tree, current_note_path=rel_path, dingbat_manifest=dingbat_manifest)
         # Rewrite wiki-root-relative image refs to note-relative paths
         if section_text and "assets/" in section_text:
-            section_text = _rewrite_asset_paths(section_text, rel_path, config.books_dir, source_id=tree.source_id)
+            section_text = _rewrite_asset_paths(section_text, rel_path, config.books_dir, source_id=tree.source_id, section_title=node.title)
         content = _render_note(node, tree, source.path, source.sha256, section_text)
         abs_path.write_text(content, encoding="utf-8")
 
@@ -130,6 +168,61 @@ def emit_skeleton(
     logger.info(f"Emitted {len(emit_manifest)} Markdown notes for {source_id}")
     db.close()
     return emit_manifest
+
+
+def _filter_sections(
+    tree: SectionTree,
+    section_filter: list[str] | None,
+    page_filter: tuple[int, int] | None,
+) -> list[str] | None:
+    """Filter section IDs by section name or page range.
+
+    Args:
+        tree: The section tree.
+        section_filter: Optional list of section IDs or slugs to include.
+            Matched by: exact section_id, slug suffix, or title substring.
+        page_filter: Optional (start, end) 0-based page range to include.
+            Sections must overlap with this range to be included.
+
+    Returns:
+        Filtered list of section IDs, or None if no filters apply
+        (meaning all sections should be emitted).
+    """
+    if section_filter is None and page_filter is None:
+        return None
+
+    result = set()
+
+    for section_id, node in tree.nodes.items():
+        # Check page filter
+        if page_filter is not None:
+            start, end = page_filter
+            # Section overlaps with page range if there's any intersection
+            if node.pdf_page_end < start or node.pdf_page_start > end:
+                continue
+
+        # Check section filter
+        if section_filter is not None:
+            matched = False
+            for pattern in section_filter:
+                # Match by exact section_id
+                if section_id == pattern:
+                    matched = True
+                    break
+                # Match by slug (exact or suffix)
+                if node.slug == pattern or section_id.endswith("/" + pattern):
+                    matched = True
+                    break
+                # Match by title substring
+                if pattern.lower() in node.title.lower():
+                    matched = True
+                    break
+            if not matched:
+                continue
+
+        result.add(section_id)
+
+    return sorted(result)
 
 
 def _cleanup_stale_files(
@@ -368,18 +461,18 @@ def _deduplicate_heading(body: str, section_title: str) -> str:
     return text if text else body
 
 
-def _rewrite_asset_paths(text: str, note_path: str, books_dir: str, source_id: str) -> str:
+def _rewrite_asset_paths(text: str, note_path: str, books_dir: str, source_id: str, section_title: str = "") -> str:
     """Rewrite wiki-root-relative asset paths to note-relative paths.
 
     Image references like `![](assets/source_id/img.png)` are wiki-root-relative.
     Since assets are stored in `books/source_id/.assets/`, this function
     rewrites references to use the note-relative path to `.assets/`.
 
-    For example, from `books/source_id/chapter/section.md`:
-      assets/source_id/img.png → ../.assets/img.png
+    Additionally, when image references have empty alt text, the section
+    title is used as descriptive alt text (accessibility improvement).
 
-    From `books/source_id/index.md`:
-      assets/source_id/img.png → .assets/img.png
+    For example, from `books/source_id/chapter/section.md`:
+      ![](assets/source_id/img.png) → ![Section Title](../.assets/img.png)
     """
     import re
     from pathlib import PurePosixPath
@@ -409,9 +502,15 @@ def _rewrite_asset_paths(text: str, note_path: str, books_dir: str, source_id: s
     else:
         prefix = "../" * depth + ".assets/"
 
+    # Clean section title for alt text: strip markdown formatting
+    clean_title = re.sub(r"[*_`\[\]()#]", "", section_title).strip() if section_title else ""
+
     def _replace(m):
         alt_text = m.group(1)
         img_path = m.group(2)
+        # Populate empty alt text with section title for accessibility
+        if not alt_text and clean_title:
+            alt_text = clean_title
         # Only rewrite wiki-root-relative paths
         if img_path.startswith("assets/"):
             # Extract just the filename (drop assets/source_id/ prefix)

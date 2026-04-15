@@ -179,3 +179,110 @@ class TestEmitSkeleton:
 
         # Section B should have been cleaned up
         assert not sec_b_file.exists(), f"Stale file should be removed: {sec_b_file}"
+
+
+class TestEmitFilters:
+    """Tests for --sections and --page-range filters."""
+
+    def test_page_range_filter(self, tmp_path: Path, config: WikiConfig):
+        pdf_path = tmp_path / "book.pdf"
+        toc = [
+            [1, "Chapter 1", 1],
+            [1, "Chapter 2", 5],
+            [1, "Chapter 3", 10],
+        ]
+        create_test_pdf(pdf_path, num_pages=15, toc_entries=toc)
+        _run_full_pipeline(str(pdf_path), config)
+
+        # Filter to pages 0-6 (0-based) → should include chapters 1 and 2
+        manifest = emit_skeleton("book", config, force=True, page_filter=(0, 6))
+        # Chapter 3 starts at page 9 (0-based) — should be excluded
+        assert any("chapter-3" not in sid for sid in manifest.keys())
+        assert len(manifest) == 2
+
+    def test_section_filter_by_slug(self, tmp_path: Path, config: WikiConfig):
+        pdf_path = tmp_path / "book.pdf"
+        toc = [
+            [1, "Chapter 1", 1],
+            [1, "Chapter 2", 5],
+            [1, "Chapter 3", 10],
+        ]
+        create_test_pdf(pdf_path, num_pages=15, toc_entries=toc)
+        _run_full_pipeline(str(pdf_path), config)
+
+        # Filter by slug
+        manifest = emit_skeleton("book", config, force=True, section_filter=["chapter-2"])
+        assert len(manifest) == 1
+        assert any("chapter-2" in sid for sid in manifest.keys())
+
+    def test_section_filter_by_title(self, tmp_path: Path, config: WikiConfig):
+        pdf_path = tmp_path / "book.pdf"
+        toc = [
+            [1, "Introduction", 1],
+            [1, "Combat Rules", 5],
+            [1, "Magic", 10],
+        ]
+        create_test_pdf(pdf_path, num_pages=15, toc_entries=toc)
+        _run_full_pipeline(str(pdf_path), config)
+
+        # Filter by title substring
+        manifest = emit_skeleton("book", config, force=True, section_filter=["Rules"])
+        assert len(manifest) == 1
+        assert any("combat" in sid for sid in manifest.keys())
+
+    def test_no_filter_emits_all(self, tmp_path: Path, config: WikiConfig):
+        pdf_path = tmp_path / "book.pdf"
+        toc = [
+            [1, "Chapter 1", 1],
+            [1, "Chapter 2", 5],
+        ]
+        create_test_pdf(pdf_path, num_pages=10, toc_entries=toc)
+        _run_full_pipeline(str(pdf_path), config)
+
+        manifest = emit_skeleton("book", config, force=True)
+        assert len(manifest) == 2
+
+
+class TestDryRun:
+    """Tests for --dry-run mode."""
+
+    def test_dry_run_no_files(self, tmp_path: Path, config: WikiConfig):
+        pdf_path = tmp_path / "book.pdf"
+        toc = [[1, "Chapter 1", 1], [1, "Chapter 2", 5]]
+        create_test_pdf(pdf_path, num_pages=10, toc_entries=toc)
+        _run_full_pipeline(str(pdf_path), config)
+
+        # Enable dry-run
+        config.dry_run = True
+        manifest = emit_skeleton("book", config, force=True)
+
+        # Should report sections but not write files
+        output_dir = config.resolved_output_dir()
+        for sid, path in manifest.items():
+            assert not (output_dir / path).exists(), f"Dry-run should not write file: {path}"
+
+
+class TestImageAltText:
+    """Tests for image alt text population from section title."""
+
+    def test_empty_alt_populated_from_section_title(self):
+        from pdf_to_wiki.emit.markdown_writer import _rewrite_asset_paths
+        text = "Some text\n\n![](assets/my-book/page_0_picture_0.png)\n\nMore text"
+        result = _rewrite_asset_paths(text, "books/my-book/chapter/section.md", "books", "my-book", section_title="Combat Rules")
+        # Empty alt text should be populated with section title
+        assert "![Combat Rules](" in result
+
+    def test_existing_alt_preserved(self):
+        from pdf_to_wiki.emit.markdown_writer import _rewrite_asset_paths
+        text = "![A diagram](assets/my-book/page_0_picture_0.png)"
+        result = _rewrite_asset_paths(text, "books/my-book/chapter/section.md", "books", "my-book", section_title="Combat Rules")
+        # Existing alt text should NOT be overwritten
+        assert "![A diagram](" in result
+        assert "![Combat Rules](" not in result
+
+    def test_no_title_keeps_empty_alt(self):
+        from pdf_to_wiki.emit.markdown_writer import _rewrite_asset_paths
+        text = "![](assets/my-book/page_0_picture_0.png)"
+        result = _rewrite_asset_paths(text, "books/my-book/chapter/section.md", "books", "my-book", section_title="")
+        # No section title provided — alt remains empty
+        assert "![](" in result

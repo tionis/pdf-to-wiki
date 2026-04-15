@@ -1,0 +1,205 @@
+"""Build-time validation for emitted Markdown wikis.
+
+Checks for:
+- Broken internal Markdown links (relative [Title](path.md) references)
+- Broken image references (![](.assets/...) paths)
+- Orphan .md files not in the emit manifest
+- Unresolved page-ref annotations left in the text
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from pdf_to_wiki.cache.artifact_store import ArtifactStore
+from pdf_to_wiki.cache.db import CacheDB
+from pdf_to_wiki.config import WikiConfig
+from pdf_to_wiki.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class ValidationReport:
+    """Result of validating an emitted wiki."""
+
+    source_id: str
+    total_files: int = 0
+    broken_links: list[tuple[str, str, str]] = field(default_factory=list)  # (file, link_target, link_text)
+    broken_images: list[tuple[str, str]] = field(default_factory=list)  # (file, image_path)
+    orphan_files: list[str] = field(default_factory=list)  # relative paths
+    unresolved_page_refs: list[tuple[str, str]] = field(default_factory=list)  # (file, ref_text)
+    warnings: list[str] = field(default_factory=list)
+
+    @property
+    def is_clean(self) -> bool:
+        return (
+            not self.broken_links
+            and not self.broken_images
+            and not self.orphan_files
+            and not self.unresolved_page_refs
+        )
+
+    def summary(self) -> str:
+        lines = [
+            f"Validation report for {self.source_id}:",
+            f"  Files checked: {self.total_files}",
+            f"  Broken links: {len(self.broken_links)}",
+            f"  Broken images: {len(self.broken_images)}",
+            f"  Orphan files: {len(self.orphan_files)}",
+            f"  Unresolved page refs: {len(self.unresolved_page_refs)}",
+        ]
+        if self.broken_links:
+            lines.append("  Broken links:")
+            for file, target, text in self.broken_links[:20]:
+                lines.append(f"    {file}: [{text}]({target})")
+        if self.broken_images:
+            lines.append("  Broken images:")
+            for file, img in self.broken_images[:20]:
+                lines.append(f"    {file}: ![]({img})")
+        if self.orphan_files:
+            lines.append("  Orphan files:")
+            for path in self.orphan_files[:20]:
+                lines.append(f"    {path}")
+        if self.unresolved_page_refs:
+            lines.append("  Unresolved page refs:")
+            for file, ref in self.unresolved_page_refs[:20]:
+                lines.append(f"    {file}: {ref}")
+        if self.is_clean:
+            lines.append("  ✅ No issues found")
+        return "\n".join(lines)
+
+
+# Regex patterns for Markdown link/image extraction
+_MD_LINK_RE = re.compile(r'\[([^\]]+)\]\(([^)]+\.md)\)')
+_MD_IMAGE_RE = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
+_PAGE_REF_RE = re.compile(r'\{\{page-ref:([^}]+)\}\}')
+
+
+def validate_wiki(source_id: str, config: WikiConfig) -> ValidationReport:
+    """Validate the emitted wiki for a registered PDF source.
+
+    Checks all .md files in the output directory for:
+    - Broken internal Markdown links
+    - Broken image references
+    - Orphan .md files not in the emit manifest
+    - Unresolved {{page-ref:N}} annotations
+
+    Args:
+        source_id: The registered PDF source ID.
+        config: Pipeline configuration.
+
+    Returns:
+        A ValidationReport with any issues found.
+    """
+    db = CacheDB(config.resolved_cache_db_path())
+    artifacts = ArtifactStore(config.resolved_artifact_dir())
+    output_dir = config.resolved_output_dir()
+    book_dir = output_dir / config.books_dir / source_id
+
+    report = ValidationReport(source_id=source_id)
+
+    if not book_dir.exists():
+        report.warnings.append(f"Output directory does not exist: {book_dir}")
+        db.close()
+        return report
+
+    # Load the emit manifest
+    emit_manifest = artifacts.load_json(source_id, "emit_manifest") or {}
+
+    # Collect all .md files in the book directory
+    all_md_files: set[str] = set()
+    for md_file in book_dir.rglob("*.md"):
+        rel_path = str(md_file.relative_to(output_dir))
+        all_md_files.add(rel_path)
+
+    # Check for orphan files (files not in the emit manifest)
+    manifest_paths = set(emit_manifest.values())
+    # Also add the index.md files that may be generated
+    # These aren't in the emit_manifest but are valid outputs
+    index_files = set()
+    for md_file in book_dir.rglob("index.md"):
+        rel_path = str(md_file.relative_to(output_dir))
+        index_files.add(rel_path)
+
+    expected_files = manifest_paths | index_files
+    # Also add the global index if it exists
+    global_index = str(output_dir / config.books_dir / "index.md")
+    global_index_rel = str(Path(config.books_dir) / "index.md")
+
+    orphan_files = all_md_files - expected_files - {global_index_rel}
+    report.orphan_files = sorted(orphan_files)
+
+    # Check each .md file for broken links and images
+    for rel_path in sorted(all_md_files):
+        abs_path = output_dir / rel_path
+        if not abs_path.exists():
+            continue
+
+        content = abs_path.read_text(encoding="utf-8")
+        report.total_files += 1
+
+        # Check Markdown links [text](path.md)
+        for m in _MD_LINK_RE.finditer(content):
+            link_text = m.group(1)
+            link_target = m.group(2)
+
+            # Skip external links
+            if link_target.startswith(("http://", "https://", "mailto:")):
+                continue
+
+            # Resolve the link relative to the file's directory
+            file_dir = abs_path.parent
+            target_path = (file_dir / link_target).resolve()
+
+            # Check if the target file exists
+            if not target_path.exists():
+                report.broken_links.append((rel_path, link_target, link_text))
+
+        # Check image references ![alt](path)
+        for m in _MD_IMAGE_RE.finditer(content):
+            img_path = m.group(2)
+
+            # Skip external images
+            if img_path.startswith(("http://", "https://")):
+                continue
+
+            # Resolve the image path relative to the file's directory
+            file_dir = abs_path.parent
+            target_path = (file_dir / img_path).resolve()
+
+            if not target_path.exists():
+                report.broken_images.append((rel_path, img_path))
+
+        # Check for unresolved page-ref annotations
+        for m in _PAGE_REF_RE.finditer(content):
+            ref = m.group(0)
+            report.unresolved_page_refs.append((rel_path, ref))
+
+    db.close()
+
+    logger.info(f"Validation of {source_id}: {report.total_files} files, "
+                f"{len(report.broken_links)} broken links, "
+                f"{len(report.broken_images)} broken images, "
+                f"{len(report.orphan_files)} orphans, "
+                f"{len(report.unresolved_page_refs)} unresolved refs")
+
+    return report
+
+
+def validate_all(config: WikiConfig) -> dict[str, ValidationReport]:
+    """Validate all registered PDF wikis.
+
+    Returns a dict mapping source_id → ValidationReport.
+    """
+    db = CacheDB(config.resolved_cache_db_path())
+    sources = db.list_pdf_sources()
+    db.close()
+
+    reports = {}
+    for source in sources:
+        reports[source.source_id] = validate_wiki(source.source_id, config)
+
+    return reports
