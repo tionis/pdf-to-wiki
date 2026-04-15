@@ -223,14 +223,13 @@ def split_markdown_by_headings(
         merged_ranges.append((pos, end, level, title))
     heading_ranges = merged_ranges
 
-    # For each section, find the best matching heading
-    result: dict[str, str] = {}
+    # Pass 1: For each section, find the best matching heading range.
+    # Build a set of heading-range indices that are claimed by sections.
+    section_matches: dict[str, int] = {}  # section_id → heading_range index
+    heading_claimed: set[int] = set()  # indices of heading_ranges claimed by sections
 
     for section_id, title, _start_page, _end_page in sections:
-        # Normalize section title for comparison
         title_clean = _normalize_title(title)
-
-        # Try to match this section to a heading
         matched_idx = None
         best_score = 0
 
@@ -252,7 +251,36 @@ def split_markdown_by_headings(
                         matched_idx = j
 
         if matched_idx is not None and best_score >= 30:
-            start, end, _, _ = heading_ranges[matched_idx]
+            section_matches[section_id] = matched_idx
+            heading_claimed.add(matched_idx)
+
+    # Pass 2: For each matched section, absorb subsequent unclaimed
+    # heading ranges. Marker often creates sub-headings (e.g. "Ranged
+    # Weapons Chart" inside "Weapons") that aren't in the TOC but contain
+    # important content like tables. We extend the section's end to cover
+    # all consecutive unclaimed heading ranges until we hit one claimed
+    # by another section.
+    section_end_idx: dict[str, int] = {}  # section_id → last heading_range index
+    for section_id, match_idx in section_matches.items():
+        end_idx = match_idx
+        # Look ahead at subsequent heading ranges
+        for j in range(match_idx + 1, len(heading_ranges)):
+            if j in heading_claimed:
+                # This heading is claimed by another section — stop
+                break
+            # Unclaimed heading — absorb it
+            end_idx = j
+        section_end_idx[section_id] = end_idx
+
+    # Pass 3: Assemble the section text from the heading ranges
+    result: dict[str, str] = {}
+
+    for section_id, title, _start_page, _end_page in sections:
+        if section_id in section_matches:
+            match_idx = section_matches[section_id]
+            end_idx = section_end_idx[section_id]
+            start = heading_ranges[match_idx][0]
+            end = heading_ranges[end_idx][1]  # end of the last absorbed range
             section_text = "\n".join(lines[start:end]).strip()
             result[section_id] = section_text
         else:

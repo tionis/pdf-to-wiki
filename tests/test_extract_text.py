@@ -117,3 +117,73 @@ class TestExtractText:
         engine = get_engine("pymupdf", config)
         text = engine.extract_page_range(str(pdf_path), 0, 2)
         assert "dragons" in text
+
+class TestSplitMarkdownByHeadings:
+    """Tests for the split_markdown_by_headings function."""
+
+    def test_basic_split(self):
+        """Basic heading split with two sections."""
+        from pdf_to_wiki.extract.marker_engine import split_markdown_by_headings
+
+        md = "# Section One\nContent for one.\n\n# Section Two\nContent for two."
+        sections = [
+            ("s1", "Section One", 1, 3),
+            ("s2", "Section Two", 4, 6),
+        ]
+        result = split_markdown_by_headings(md, sections)
+        assert "Content for one" in result["s1"]
+        assert "Content for two" in result["s2"]
+
+    def test_absorb_unmatched_sub_heading(self):
+        """Sub-headings not in TOC should be absorbed by parent section."""
+        from pdf_to_wiki.extract.marker_engine import split_markdown_by_headings
+
+        md = (
+            "# Weapons\n"
+            "# Ranged Weapons Chart\n"
+            "| Type | Dmg |\n"
+            "|------|-----|\n"
+            "| Pistol | 2 |\n"
+            "# Melee Weapons Chart\n"
+            "| Weapon | Dmg |\n"
+            "|--------|-----|\n"
+            "| Knife | 1 |\n"
+            "# Next Section\n"
+            "Other content here.\n"
+        )
+        sections = [
+            ("weapons", "Weapons", 1, 3),
+            ("next", "Next Section", 5, 6),
+        ]
+        result = split_markdown_by_headings(md, sections)
+
+        # "Weapons" section should absorb the Ranged and Melee chart sub-headings
+        assert "| Pistol |" in result["weapons"]
+        assert "| Knife |" in result["weapons"]
+        # "Next Section" should not have the weapon content
+        assert "Pistol" not in result["next"]
+
+    def test_no_match_falls_back_to_page_range(self):
+        """Sections with no heading match get page-range fallback text."""
+        from pdf_to_wiki.extract.marker_engine import split_markdown_by_headings
+
+        md = '<span id="page-3-0"></span>\nPage 3 content.\n<span id="page-5-0"></span>\nPage 5 content.'
+        sections = [
+            ("unmatched", "Unmatched Section", 3, 4),
+        ]
+        result = split_markdown_by_headings(md, sections)
+        # Should fall back to page-range extraction
+        assert "Page 3 content" in result["unmatched"]
+
+    def test_consecutive_same_title_merged(self):
+        """Consecutive headings with the same normalized title are merged."""
+        from pdf_to_wiki.extract.marker_engine import split_markdown_by_headings
+
+        md = "# Equipment\nSome intro.\n# EQUIPMENT\n| Item | Cost |\n|------|------|\n| Rope | 1 |"
+        sections = [
+            ("equip", "Equipment", 1, 3),
+        ]
+        result = split_markdown_by_headings(md, sections)
+        # Both "Equipment" and "EQUIPMENT" should be merged into one
+        assert "Some intro" in result["equip"]
+        assert "| Rope |" in result["equip"]
