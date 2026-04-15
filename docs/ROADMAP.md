@@ -150,11 +150,15 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 ### Next
 
 - [ ] Handle PDFs without embedded TOCs (fallback mode using page ranges)
-- [ ] Add --dry-run mode and --sections/--page-range filters
+- [ ] Add --dry-run mode and --sections/--page-range CLI filters
 - [ ] Alias/glossary extraction from bold/italic game terms in body text
 - [ ] Entity page generation (auto-stubs for spells, conditions, skills)
 - [ ] Docling integration as alternative to Marker (faster, different tradeoffs)
 - [ ] Design extraction artifact schema (structured, not just raw text)
+- [ ] Repair pipeline: handle `Wordp. N` pattern (no space before `p.`)
+- [ ] HTML `<br>` tag pass-through in Marker table output (convert to `<br>` or `\n`)
+- [ ] Build-time validation: broken link checker, orphan file detection
+- [ ] Image alt text from context (currently `![](.assets/...)` — add descriptive alt)
 
 ### Deferred / Later
 
