@@ -150,15 +150,74 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 ### Next
 
 - [ ] Handle PDFs without embedded TOCs (fallback mode using page ranges)
-- [ ] Add --dry-run mode and --sections/--page-range CLI filters
+  - When PyMuPDF returns an empty TOC (`toc.json` is `[]`), the pipeline currently fails. Need a fallback that:
+    1. Detects empty TOC in `build_section_tree`
+    2. Creates sections from page ranges (e.g., one section per page or per N pages)
+    3. Uses font-size heuristics from PyMuPDF to detect headings as section boundaries
+    4. Alternative: use Marker's heading output to synthesize a TOC
+  - Key files: `src/pdf_to_wiki/ingest/build_section_tree.py`, `src/pdf_to_wiki/ingest/extract_toc.py`
+
+- [ ] Add `--dry-run` mode and `--sections`/`--page-range` CLI filters
+  - `--dry-run`: Print what would be done without writing files. Add a `dry_run` flag to `WikiConfig`, check in each stage before writing.
+  - `--sections`: Comma-separated list of section IDs or slugs to process. Filter `sections` list in `extract_text` and `emit_skeleton`.
+  - `--page-range`: Only process sections within the given page range. Filter by `pdf_page_start`/`pdf_page_end`.
+  - Key files: `src/pdf_to_wiki/cli.py`, `src/pdf_to_wiki/config.py`, `src/pdf_to_wiki/models.py`
+
 - [ ] Alias/glossary extraction from bold/italic game terms in body text
+  - CoD output has 303 files with `**bold**` terms and 126 with `*italic*` terms.
+  - Pattern: `**Term**: definition` (e.g., `**Armor**: Armor provides protection...`)
+  - Also: `**Effect:**`, `**Prerequisites:**`, `**Resolution:**` — these are structured fields
+  - Approach: regex-based extraction from `extract_text.json` artifacts, produce a `glossary.json` artifact mapping term → (definition, source_section_id, page)
+  - Emit as `books/<source_id>/glossary.md` with alphabetical term index
+  - Key files: New `src/pdf_to_wiki/repair/extract_glossary.py`, `src/pdf_to_wiki/emit/markdown_writer.py`
+
 - [ ] Entity page generation (auto-stubs for spells, conditions, skills)
+  - Many sections already exist for entities (e.g., `the-appendices/appendix-three-conditions/bonded.md`)
+  - Goal: generate cross-reference stub pages under a shared `entities/` namespace
+  - Each stub links back to the source section(s) where the entity appears
+  - Bold-term extraction from alias/glossary (above) is a prerequisite for finding entity mentions
+  - Key files: New `src/pdf_to_wiki/emit/entity_pages.py`, depends on glossary extraction
+
 - [ ] Docling integration as alternative to Marker (faster, different tradeoffs)
+  - Follow the `BaseEngine` pattern documented in AGENTS.md and `extract/__init__.py`
+  - Install: add `[docling]` optional dependency group for `docling>=1.0.0`
+  - Implement `extract_page_range()` and `extract_full_pdf()` (if Docling supports full-PDF)
+  - Register with `@register_engine("docling")` in `extract/docling_engine.py`
+  - Import in `ingest/extract_text.py` to trigger registration
+  - Key files: New `src/pdf_to_wiki/extract/docling_engine.py`, `pyproject.toml`
+
 - [ ] Design extraction artifact schema (structured, not just raw text)
+  - Current `extract_text.json` maps `section_id → raw_text_string`
+  - Structured schema would include: paragraphs, tables (as structured data, not pipe-text), image refs, bold/italic spans, page anchors
+  - This enables richer downstream processing (glossary extraction, entity detection)
+  - Key files: `src/pdf_to_wiki/models.py`, `src/pdf_to_wiki/ingest/extract_text.py`
+
 - [ ] Repair pipeline: handle `Wordp. N` pattern (no space before `p.`)
-- [ ] HTML `<br>` tag pass-through in Marker table output (convert to `<br>` or `\n`)
+  - Current regex: `re.compile(r'p\.\s+(\d+)')` requires whitespace before `p.`
+  - Misses cases like `Parkourp. 48` where bold term is adjacent to page ref
+  - Fix: add alternative pattern `(?<=[a-z])p\.\s*(\d+)` in `annotate_page_refs()`
+  - 2 instances found in CoD output
+  - Key file: `src/pdf_to_wiki/repair/rewrite_refs.py` (function `annotate_page_refs`)
+
+- [ ] HTML `<br>` tag pass-through in Marker table output
+  - Marker emits `<br>` for intra-cell line breaks in pipe tables
+  - E.g., `| Fragile<br>Volatile | 102<br>102 |` — renders in some viewers but not all
+  - Options: (a) replace `<br>` with `\n` (breaks pipe table format), (b) keep as-is (works in GitHub), (c) use HTML tables instead of pipe tables for cells with breaks
+  - Best approach: probably keep as-is since GitHub renders `<br>` in tables, but add a repair option
+  - Key file: `src/pdf_to_wiki/repair/clean_text.py` (in `clean_marker_artifacts`)
+
 - [ ] Build-time validation: broken link checker, orphan file detection
+  - After emission, verify all `[Title](path.md)` links resolve to existing files
+  - Verify all `![](.assets/*.png)` image refs resolve
+  - Report orphan `.md` files not in the emit manifest
+  - Add as a new `validate` CLI command or a post-build step
+  - Key files: New `src/pdf_to_wiki/emit/validate.py`, `src/pdf_to_wiki/cli.py`
+
 - [ ] Image alt text from context (currently `![](.assets/...)` — add descriptive alt)
+  - All image references have empty alt text `![](.assets/page_N_picture_X.png)`
+  - Could be populated from: surrounding heading, adjacent paragraph, or Marker's image captions
+  - Low priority (accessibility improvement, not functional)
+  - Key files: `src/pdf_to_wiki/extract/pdf_images.py`, `src/pdf_to_wiki/emit/markdown_writer.py`
 
 ### Deferred / Later
 
