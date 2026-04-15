@@ -4,7 +4,7 @@
 
 **PDF-to-Wiki** converts pen-and-paper rulebook PDFs into structured Markdown wikis with full traceability from generated Markdown back to source PDF pages. The pipeline extracts TOC/outline, page labels, and section metadata from PDFs, builds a canonical section tree, extracts text content per section (Marker ML or PyMuPDF deterministic), runs repair/normalization, and emits Markdown files with YAML frontmatter.
 
-**Current milestone (M5):** Cross-book linking and semantic enrichment. Core pipeline is feature-complete for two large rulebooks (Storypath 257pg/450 sections, Chronicles of Darkness 301pg/521 sections).
+**Current milestone (M5 ✅):** Cross-book linking and quality features complete. Core pipeline is feature-complete for two large rulebooks (Storypath 257pg/450 sections, Chronicles of Darkness 301pg/521 sections). Semantic enrichment (glossary, entity pages, LLM) deferred to M6.
 
 ---
 
@@ -61,7 +61,7 @@ These are **non-negotiable** unless explicitly reconsidered:
 | `src/pdf_to_wiki/config.py` | Configuration loading (TOML) |
 | `src/pdf_to_wiki/ingest/` | PDF ingestion (register, TOC, page labels, section tree, extract) |
 | `src/pdf_to_wiki/ingest/register_pdf.py` | PDF registration + SHA-256 fingerprinting |
-| `src/pdf_to_wiki/ingest/extract_toc.py` | TOC extraction via PyMuPDF |
+| `src/pdf_to_wiki/ingest/extract_toc.py` | TOC extraction via PyMuPDF, no-TOC fallback (`_synthesize_toc_from_headings()`) |
 | `src/pdf_to_wiki/ingest/extract_page_labels.py` | Page labels via pypdf |
 | `src/pdf_to_wiki/ingest/build_section_tree.py` | Section tree: TOC + labels → canonical tree, `_unwrap_single_root()`, `_dedup_slug()`, parent clipping |
 | `src/pdf_to_wiki/ingest/extract_text.py` | Extraction orchestration (engine dispatch, caching, `_extract_with_marker()`, `_find_overlapping_siblings()`) |
@@ -71,10 +71,11 @@ These are **non-negotiable** unless explicitly reconsidered:
 | `src/pdf_to_wiki/extract/pymupdf_engine.py` | PyMuPDF engine: `extract_page_range()`, `extract_page_text_structured()`, `find_heading_position()`, `extract_section_text_structured()` |
 | `src/pdf_to_wiki/extract/pdf_images.py` | Image extraction (PyMuPDF), content-hash dedup, reference rewriting |
 | `src/pdf_to_wiki/repair/clean_text.py` | Structured extraction: column-aware layout, header/footer removal, soft-hyphen/hard-hyphen repair, paragraph assembly, `clean_marker_artifacts()` (page-anchor spans + page-links), dingbat manifest + remapping |
-| `src/pdf_to_wiki/repair/normalize.py` | OCR word-break repair, bullet normalization (TTRPG dot ratings), whitespace normalization |
+| `src/pdf_to_wiki/repair/normalize.py` | OCR word-break repair, bullet normalization (TTRPG dot ratings), whitespace normalization, page-ref annotation with `Wordp.N` fix, `<br>`-in-table conversion |
 | `src/pdf_to_wiki/repair/rewrite_refs.py` | Page-ref annotation (`p. 43` → `{{page-ref:43}}`), rewriting to Markdown relative links, cross-book resolution |
-| `src/pdf_to_wiki/emit/markdown_writer.py` | Markdown emission with YAML frontmatter, `_rewrite_asset_paths()`, stale file cleanup |
+| `src/pdf_to_wiki/emit/markdown_writer.py` | Markdown emission with YAML frontmatter, `_rewrite_asset_paths()` (alt text population), `_filter_sections()`, stale file cleanup |
 | `src/pdf_to_wiki/emit/obsidian_paths.py` | Deterministic path generation (slug → directory/file structure) |
+| `src/pdf_to_wiki/emit/validate.py` | Post-build validation: broken links, missing images, orphan files, unresolved page refs |
 | `src/pdf_to_wiki/cache/` | SQLite cache, artifact store, step manifests |
 | `src/pdf_to_wiki/llm/` | (Stub) Future: Ollama-backed enrichment |
 | `data/` | Runtime data (cache, artifacts, outputs) — gitignored |
@@ -109,6 +110,18 @@ Many PDFs have one root node whose title matches the book title (e.g., "Chronicl
 ### Image Extraction & Rewriting
 
 PyMuPDF extracts images from each page to `books/<source_id>/.assets/` as PNG files. Content-hash deduplication prevents duplicate images. Marker's image references (`![_page_N_Picture_X.jpeg]`) are rewritten to note-relative paths (`![](.assets/page_N_picture_X.png)`). Fallback matching handles page-index misalignment between Marker and PyMuPDF.
+
+### No-TOC PDF Fallback
+
+When a PDF has no embedded bookmarks, `extract_toc()` calls `_synthesize_toc_from_headings()` which scans the PDF for text spans with font sizes significantly larger than body text. Heading levels are estimated by relative font size: ≥2.0× body → L1, ≥1.5× → L2, ≥1.3× → L3. Consecutive duplicate headings (running headers) are deduplicated.
+
+### Build-time Validation
+
+The `validate` command checks emitted wikis for broken Markdown links, missing image references, orphan `.md` files, and unresolved `{{page-ref:N}}` annotations. It cross-references the emit manifest against actual files on disk. Reports issues via `ValidationReport` dataclass.
+
+### Selective Processing & Dry-Run
+
+`--sections` filters by section_id, slug, or title substring. `--page-range` restricts to sections overlapping a given page range. `--dry-run` prevents file writes and reports what would be done. Implemented in `emit_skeleton`, `extract_text`, and `build_section_tree`.
 
 ---
 

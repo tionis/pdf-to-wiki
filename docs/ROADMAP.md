@@ -6,7 +6,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ## Current Status
 
-**Milestone 5 nearly complete.** The pipeline processes full rulebook PDFs through TOC extraction, section tree construction, text extraction (Marker or PyMuPDF), repair/normalization, and Markdown emission. Tables are preserved via Marker's native Markdown pipe-table output (37 sections with tables in CoD build). Multiple PDFs can be ingested into a shared wiki with proper namespacing. Internal links use standard Markdown relative links (`[Title](../path/to/section.md)`) for broad compatibility. Dingbats font characters (e.g., FantasyRPGDings `Y` → `•`) are remapped via per-PDF font manifest. TTRPG dot ratings (`•`, `••`, `•••`) are preserved. Marker sub-heading absorption ensures tables under unTOC'd headings are captured. Marker page-anchor spans and page-links are stripped. Mid-page section extraction uses font-size-based heading detection. Build-time validation (`validate` command) checks for broken links, missing images, orphan files. `--dry-run`, `--sections`, and `--page-range` CLI filters enable selective processing. No-TOC PDFs are supported via font-size heading synthesis. Image alt text is populated from section titles for accessibility. HTML `<br>` in Marker tables is converted to ` / ` for broad Markdown compatibility. Joined game-term + page-ref patterns (`Parkourp. 48` → `Parkour p. 48`) are detected and annotated.
+**Milestone 5 complete.** Core pipeline and quality features are all implemented. Semantic enrichment (glossary, entity pages, LLM) is deferred to a future M6 milestone. The pipeline processes full rulebook PDFs through TOC extraction, section tree construction, text extraction (Marker or PyMuPDF), repair/normalization, and Markdown emission. Tables are preserved via Marker's native Markdown pipe-table output (37 sections with tables in CoD build). Multiple PDFs can be ingested into a shared wiki with proper namespacing. Internal links use standard Markdown relative links (`[Title](../path/to/section.md)`) for broad compatibility. Dingbats font characters (e.g., FantasyRPGDings `Y` → `•`) are remapped via per-PDF font manifest. TTRPG dot ratings (`•`, `••`, `•••`) are preserved. Marker sub-heading absorption ensures tables under unTOC'd headings are captured. Marker page-anchor spans and page-links are stripped. Mid-page section extraction uses font-size-based heading detection. Build-time validation (`validate` command) checks for broken links, missing images, orphan files. `--dry-run`, `--sections`, and `--page-range` CLI filters enable selective processing. No-TOC PDFs are supported via font-size heading synthesis. Image alt text is populated from section titles for accessibility. HTML `<br>` in Marker tables is converted to ` / ` for broad Markdown compatibility. Joined game-term + page-ref patterns (`Parkourp. 48` → `Parkour p. 48`) are detected and annotated.
 
 **Tested on two large rulebooks:**
 - **Storypath Ultra Core Manual** (257 pages, 450 sections, 9 tables)
@@ -64,8 +64,8 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Marker page-link unwrapping (`[\(p.21\)](#page-21-0)` → plain text before page-ref annotation)
 - [x] `repair` CLI command (re-emits with repair applied)
 - [x] 115 tests passing
-- [ ] OCR fallback for problematic pages (optional)
-- [ ] LLM-assisted structural disambiguation (cached, optional)
+- [ ] OCR fallback for problematic pages (optional, deferred)
+- [ ] LLM-assisted structural disambiguation (cached, optional, deferred)
 
 ### Milestone 4 — Multi-PDF wiki ingestion ✅
 
@@ -81,7 +81,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Portable source_pdf frontmatter (`filename.pdf (sha256:hash)` instead of absolute path)
 - [ ] Configurable output structure (flat vs. nested per book)
 
-### Milestone 5 — Cross-book linking and semantic enrichment 🔜
+### Milestone 5 — Cross-book linking and semantic enrichment ✅
 
 - [x] Intra-book reference rewriting (page → section → Markdown relative link)
 - [x] Cross-book page reference resolution (all_trees parameter)
@@ -92,9 +92,6 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Image extraction from PDF and saving to `books/<source_id>/.assets/` hidden directory
 - [x] Image reference rewriting (Marker refs → note-relative paths, fallback matching, dedup by content hash)
 - [x] Marker artifact cleanup (page-anchor spans and page-links stripped)
-- [x] Aliases and glossary extraction (game-specific terms auto-detected) → deferred to M6
-- [ ] Entity pages (spells, conditions, skills) as auto-generated stubs
-- [ ] LLM-assisted enrichment (cached, optional)
 - [x] Repair pipeline: handle `Wordp. N` pattern (joined game term + page ref)
 - [x] HTML `<br>` in Marker table output → converted to ` / `
 - [x] Build-time validation: `validate` CLI command (broken links, orphan files, missing images)
@@ -102,6 +99,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] No-TOC PDF fallback (font-size heading detection)
 - [x] `--dry-run` mode
 - [x] `--sections` and `--page-range` filters
+- [ ] Alias/glossary extraction, entity pages, LLM enrichment (deferred to M6)
 
 ---
 
@@ -191,7 +189,6 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
   - Structured schema would include: paragraphs, tables (as structured data, not pipe-text), image refs, bold/italic spans, page anchors
   - This enables richer downstream processing (glossary extraction, entity detection)
   - Key files: `src/pdf_to_wiki/models.py`, `src/pdf_to_wiki/ingest/extract_text.py`
-  - Key files: `src/pdf_to_wiki/extract/pdf_images.py`, `src/pdf_to_wiki/emit/markdown_writer.py`
 
 ### Deferred / Later
 
@@ -209,7 +206,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 ## Open Questions
 
 1. **Marker vs Docling**: Marker is ~30s/page on CPU (6.5h for CoD 301 pages). Docling may be faster. Should we add Docling as another engine option?
-2. **Page-label robustness**: Some PDFs have no /PageLabels at all. Should we attempt to detect Roman-numeral front matter heuristically?
+2. **Page-label robustness**: Partially resolved — no-TOC PDFs now fall back to font-size heading synthesis. Remaining gap: PDFs with no `/PageLabels` dict AND no detectable font-size headings. Should we attempt to detect Roman-numeral front matter heuristically?
 3. **LLM cache eviction policy**: When should cached LLM responses be invalidated? Current design only invalidates on config hash change.
 4. **Entity extraction approach**: Should we detect game terms via bold/italic patterns, or use an LLM to identify entities? Bold/italic is fast and deterministic; LLM gives richer results but is slow and non-deterministic.
 5. **PyMuPDF table extraction**: `page.find_tables()` can detect tables but produces split-column artifacts. Marker handles tables natively. Should we wire in PyMuPDF table extraction as fallback for when Marker isn't available?
@@ -223,10 +220,11 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 2. **Marker singleton**: The global `_marker_converter` and `_model_dict` are process-level singletons; not safe for multi-threaded use.
 3. ~~No dry-run mode~~: ✅ Added — `--dry-run` flag prevents file writes.
 4. ~~No `--sections` filter~~: ✅ Added — `--sections` and `--page-range` filters.
-5. **Old output cleanup**: ✅ Fixed — `emit-skeleton --force` now removes stale files from previous runs.
+5. ~~Old output cleanup~~: ✅ Fixed — `emit-skeleton --force` now removes stale files from previous runs.
 6. **table_extract.py not wired**: PyMuPDF table detection module exists but isn't integrated into the extraction pipeline; Marker handles tables natively.
 7. **6 sections with <50 chars**: Mostly character entries in fiction chapters (God Machine Chronicle NPCs) where content is under sub-headings in the Marker output. Low priority since these are narrative, not rules content.
 8. **~30s/page Marker latency**: CoD build took 6.5h. Consider Docling or GPU acceleration for faster builds.
+9. **validate command doesn't run automatically**: `validate` is a separate manual step — should it be run automatically at the end of `build`?
 
 ---
 
