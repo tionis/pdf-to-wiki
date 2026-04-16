@@ -572,6 +572,140 @@ def build(ctx: click.Context, source_id: str, force: bool, force_step: str | Non
             click.echo("⚠ Build has issues. Run 'pdf-to-wiki validate' for details.", err=True)
 
 
+@main.command(name="import-blobforge")
+@click.argument("pdf_path", type=click.Path(exists=True))
+@click.option("--zip", "zip_path", default=None, type=click.Path(exists=True),
+              help="Path to BlobForge conversion zip (contains content.md)")
+@click.option("--markdown", "markdown_path", default=None, type=click.Path(exists=True),
+              help="Path to already-extracted content.md")
+@click.option("--force", is_flag=True, help="Overwrite existing marker artifact")
+@click.option("--build", "run_build", is_flag=True,
+              help="Automatically run build after import")
+@click.option("--glossary", is_flag=True,
+              help="Extract glossary and entity pages (auto-enabled for Marker)")
+@click.option("--no-validate", is_flag=True, help="Skip post-build validation")
+@click.pass_context
+def import_blobforge_cmd(ctx: click.Context, pdf_path: str, zip_path: str | None, markdown_path: str | None, force: bool, run_build: bool, glossary: bool, no_validate: bool) -> None:
+    """Import a BlobForge conversion and optionally run the full pipeline.
+
+    Places BlobForge's Marker output into the pdf-to-wiki artifact store,
+    then runs the pipeline (which skips the expensive Marker conversion
+    step and uses the cached output instead).
+
+    The original PDF is still needed for TOC extraction, page-label
+    extraction, and image/dingbat processing — but those are all fast
+    (seconds, not hours).
+
+    Examples:
+
+      # Import from a BlobForge zip, then build:
+      pdf-to-wiki import-blobforge book.pdf --zip abc123.zip --build
+
+      # Import from already-extracted content.md:
+      pdf-to-wiki import-blobforge book.pdf --markdown content.md
+
+      # Import and build with glossary:
+      pdf-to-wiki import-blobforge book.pdf --zip abc123.zip --build --glossary
+    """
+    if not zip_path and not markdown_path:
+        click.echo("Must provide either --zip or --markdown.", err=True)
+        raise SystemExit(1)
+
+    cfg = ctx.obj["config"]
+    from pdf_to_wiki.ingest.import_blobforge import import_blobforge
+
+    result = import_blobforge(
+        pdf_path=pdf_path,
+        config=cfg,
+        zip_path=zip_path,
+        markdown_path=markdown_path,
+        force=force,
+    )
+
+    source_id = result["source_id"]
+    status = result["status"]
+    chars = result.get("chars", 0)
+    images = result.get("images", 0)
+
+    click.echo(f"Import status: {status}")
+    click.echo(f"Source ID:     {source_id}")
+    click.echo(f"Markdown:     {chars:,} chars")
+    if images:
+        click.echo(f"Images:       {images}")
+
+    if status == "skipped_existing":
+        click.echo(result["message"])
+        return
+
+    click.echo(f"\n✅ Imported. Run 'pdf-to-wiki build {source_id} --engine marker' to complete the pipeline.")
+
+    if run_build:
+        click.echo(f"\n=== Running build for {source_id} ===")
+        # Delegate to the build command by invoking it
+        from pdf_to_wiki.ingest.extract_toc import extract_toc
+        from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels as extract_pl
+        from pdf_to_wiki.ingest.build_section_tree import build_section_tree
+        from pdf_to_wiki.ingest.extract_text import extract_text
+        from pdf_to_wiki.emit.markdown_writer import emit_skeleton
+
+        step_force = force
+
+        click.echo("Step 1/7: Extracting TOC...")
+        extract_toc(source_id, cfg, force=step_force)
+
+        click.echo("Step 2/7: Extracting page labels...")
+        extract_pl(source_id, cfg, force=step_force)
+
+        click.echo("Step 3/7: Building section tree...")
+        build_section_tree(source_id, cfg, force=step_force)
+
+        click.echo("Step 4/7: Extracting text (using cached BlobForge output)...")
+        extract_text(source_id, cfg, force=step_force, engine="marker")
+
+        click.echo("Step 5/7: Emitting Markdown notes...")
+        manifest = emit_skeleton(source_id, cfg, force=force)
+
+        # Glossary
+        engine_used = "marker"  # BlobForge always uses Marker
+        if glossary or engine_used in ("marker", "docling"):
+            from pdf_to_wiki.cache.artifact_store import ArtifactStore
+            from pdf_to_wiki.repair.extract_glossary import extract_glossary as extract_gloss, emit_glossary_md
+            from pdf_to_wiki.models import SectionTree
+
+            click.echo("Step 6/7: Extracting glossary...")
+            artifacts = ArtifactStore(cfg.resolved_artifact_dir())
+            text_data = artifacts.load_json(source_id, "extract_text")
+            tree_data = artifacts.load_json(source_id, "section_tree")
+
+            if text_data and tree_data:
+                tree = SectionTree(**tree_data)
+                entries = extract_gloss(text_data, tree, cfg)
+                glossary_data = [e.to_dict() for e in entries]
+                artifacts.save_json(source_id, "glossary", glossary_data)
+
+                from pdf_to_wiki.cache.manifests import StepManifestStore
+                from pdf_to_wiki.cache.db import CacheDB
+                manifests = StepManifestStore(CacheDB(cfg.resolved_cache_db_path()))
+                manifests.mark_completed(source_id, "glossary", artifact_path=f"{source_id}/glossary.json")
+
+                result_path = emit_glossary_md(source_id, cfg)
+                click.echo(f"  Extracted {len(entries)} glossary entries → {result_path}")
+        else:
+            click.echo("Step 6/7: Skipping glossary (use --glossary to enable)")
+
+        click.echo("Step 7/7: Done!")
+        click.echo(f"\n=== Build complete: {len(manifest)} notes emitted ===")
+
+        if not no_validate:
+            click.echo()
+            click.echo("Validating build...")
+            from pdf_to_wiki.emit.validate import validate_wiki
+            report = validate_wiki(source_id, cfg)
+            click.echo(report.summary())
+            if not report.is_clean:
+                click.echo("⚠ Build has issues. Run 'pdf-to-wiki validate' for details.", err=True)
+
+
 if __name__ == "__main__":
     main()
 
