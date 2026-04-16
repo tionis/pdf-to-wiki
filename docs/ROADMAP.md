@@ -208,10 +208,10 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
   - Reports font usage, character frequencies, suspicious chars, symbol fonts.
   - 6 new tests.
 
-- [ ] Full Marker build on Shadowrun 5E
-  - SR has 83+ gear/equipment sections with tables that PyMuPDF flattens.
-  - Marker would preserve those as pipe tables. ~4h CPU build time.
-  - This is an execution task, not a code change.
+- [x] Full Marker build on Shadowrun 5E
+  - ✅ Build complete: 502 pages, 544 sections, 5.58M chars, 141 table sections, 312 structured tables, 26 glossary entries, 4493 images, 0 validation issues.
+  - 24 sections fell back to PyMuPDF (95.6% heading match rate, up from 98.9% on CoD).
+  - Marker full-PDF MD: 5.26M chars cached.
 
 ### Dropped (out of scope or no longer needed)
 
