@@ -4,7 +4,7 @@
 
 **PDF-to-Wiki** converts pen-and-paper rulebook PDFs into structured Markdown wikis with full traceability from generated Markdown back to source PDF pages. The pipeline extracts TOC/outline, page labels, and section metadata from PDFs, builds a canonical section tree, extracts text content per section (Marker ML or PyMuPDF deterministic), runs repair/normalization, and emits Markdown files with YAML frontmatter.
 
-**Current milestone (M5 ✅):** Cross-book linking and quality features complete. Core pipeline is feature-complete for three large rulebooks (Storypath 257pg/450 sections, CoD 301pg/521 sections, Shadowrun 5E 502pg/544 sections). Semantic enrichment (glossary, entity pages, LLM) deferred to M6.
+**Current milestone (M5 ✅):** Cross-book linking and quality features complete. Core pipeline is feature-complete for three large rulebooks (Storypath 257pg/450 sections, CoD 301pg/521 sections, Shadowrun 5E 502pg/544 sections). Glossary extraction, Docling engine, and auto-validate added. Semantic enrichment (entity pages, LLM) deferred to M6.
 
 ---
 
@@ -47,7 +47,7 @@ These are **non-negotiable** unless explicitly reconsidered:
   - `AGENTS.md` (if agent-facing conventions change)
 - **Run the test suite** before declaring work done: `uv run pytest tests/ -v`
 - **Tests must use `engine="pymupdf"`** — Marker requires ML models and takes minutes per test.
-- **155 tests passing** — run `uv run pytest tests/ -q` to verify.
+- **191 tests passing** — run `uv run pytest tests/ -q` to verify.
 
 ---
 
@@ -68,10 +68,12 @@ These are **non-negotiable** unless explicitly reconsidered:
 | `src/pdf_to_wiki/extract/` | Extraction engine framework + engine implementations |
 | `src/pdf_to_wiki/extract/__init__.py` | `BaseEngine` ABC, `@register_engine`, `get_engine()`, `list_engines()` |
 | `src/pdf_to_wiki/extract/marker_engine.py` | Marker engine: `extract_full_pdf()`, `split_markdown_by_headings()` (3-pass: match/absorb/assemble), `_extract_by_page_range()` |
+| `src/pdf_to_wiki/extract/docling_engine.py` | Docling engine: `extract_full_pdf()`, `extract_page_range()` via IBM Docling (`[docling]` optional dep) |
 | `src/pdf_to_wiki/extract/pymupdf_engine.py` | PyMuPDF engine: `extract_page_range()`, `extract_page_text_structured()`, `find_heading_position()`, `extract_section_text_structured()` |
 | `src/pdf_to_wiki/extract/pdf_images.py` | Image extraction (PyMuPDF), content-hash dedup, reference rewriting |
 | `src/pdf_to_wiki/repair/clean_text.py` | Structured extraction: column-aware layout, header/footer removal, soft-hyphen/hard-hyphen repair, paragraph assembly, `clean_marker_artifacts()` (page-anchor spans + page-links), dingbat manifest + remapping |
 | `src/pdf_to_wiki/repair/normalize.py` | OCR word-break repair, bullet normalization (TTRPG dot ratings), whitespace normalization, page-ref annotation with `Wordp.N` fix, `<br>`-in-table conversion, running header stripping (`>> CHAPTER <<`) |
+| `src/pdf_to_wiki/repair/extract_glossary.py` | Glossary extraction (`**Term —**` lexicon entries, **Term**: inline defs, **Field:** structured fields), glossary.md emission |
 | `src/pdf_to_wiki/repair/rewrite_refs.py` | Page-ref annotation (`p. 43` → `{{page-ref:43}}`), rewriting to Markdown relative links, cross-book resolution |
 | `src/pdf_to_wiki/emit/markdown_writer.py` | Markdown emission with YAML frontmatter, `_rewrite_asset_paths()` (alt text population), `_filter_sections()`, stale file cleanup |
 | `src/pdf_to_wiki/emit/obsidian_paths.py` | Deterministic path generation (slug → directory/file structure) |

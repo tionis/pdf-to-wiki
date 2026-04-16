@@ -26,6 +26,10 @@ from pdf_to_wiki.extract import get_engine, list_engines
 # Import engines to trigger registration
 import pdf_to_wiki.extract.pymupdf_engine  # noqa: F401
 import pdf_to_wiki.extract.marker_engine  # noqa: F401
+try:
+    import pdf_to_wiki.extract.docling_engine  # noqa: F401
+except ImportError:
+    pass  # docling extra not installed; engine not registered
 from pdf_to_wiki.logging import get_logger
 from pdf_to_wiki.models import ProvenanceRecord, SectionTree
 

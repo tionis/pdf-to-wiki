@@ -218,6 +218,85 @@ def repair(ctx: click.Context, source_id: str, force: bool) -> None:
     click.echo(f"Repaired and re-emitted {len(manifest)} notes for {source_id}")
 
 
+@main.command(name="glossary")
+@click.argument("source_id")
+@click.option("--force", is_flag=True, help="Force re-extraction")
+@click.option("--emit", is_flag=True, help="Also emit glossary.md alongside wiki output")
+@click.pass_context
+def glossary(ctx: click.Context, source_id: str, force: bool, emit: bool) -> None:
+    """Extract glossary entries from the PDF's text content."""
+    from pdf_to_wiki.cache.db import CacheDB
+    from pdf_to_wiki.cache.artifact_store import ArtifactStore
+    from pdf_to_wiki.cache.manifests import StepManifestStore
+    from pdf_to_wiki.ingest.extract_text import extract_text
+    from pdf_to_wiki.repair.extract_glossary import extract_glossary as extract_gloss
+    from pdf_to_wiki.models import SectionTree
+
+    cfg = ctx.obj["config"]
+
+    # Check cache
+    artifacts = ArtifactStore(cfg.resolved_artifact_dir())
+    step = "glossary"
+    should_force = force
+
+    if not should_force:
+        cached = artifacts.load_json(source_id, "glossary")
+        if cached is not None:
+            click.echo(f"Glossary for {source_id} already extracted ({len(cached)} entries). Use --force to re-extract.")
+            if emit:
+                from pdf_to_wiki.repair.extract_glossary import emit_glossary_md
+                emit_glossary_md(source_id, cfg)
+            return
+
+    # Ensure text is extracted
+    db = CacheDB(cfg.resolved_cache_db_path())
+    source = db.get_pdf_source(source_id)
+    db.close()
+    if source is None:
+        click.echo(f"No registered PDF with source_id={source_id!r}.", err=True)
+        raise SystemExit(1)
+
+    # Extract text if needed
+    text_data = artifacts.load_json(source_id, "extract_text")
+    if text_data is None:
+        click.echo("No extracted text found. Running text extraction first...")
+        text_data = extract_text(source_id, cfg, force=False)
+    else:
+        text_data = {k: v for k, v in text_data.items()}
+
+    # Load section tree
+    tree_data = artifacts.load_json(source_id, "section_tree")
+    if tree_data is None:
+        click.echo(f"No section tree for {source_id}. Run 'build-section-tree' first.", err=True)
+        raise SystemExit(1)
+    tree = SectionTree(**tree_data)
+
+    # Extract glossary
+    entries = extract_gloss(text_data, tree, cfg)
+
+    # Save artifact
+    glossary_data = [e.to_dict() for e in entries]
+    artifacts.save_json(source_id, "glossary", glossary_data)
+
+    # Track in manifest
+    manifests = StepManifestStore(CacheDB(cfg.resolved_cache_db_path()))
+    manifests.mark_completed(source_id, step, artifact_path=f"{source_id}/glossary.json")
+    # manifests store closes its db
+
+    click.echo(f"Extracted {len(entries)} glossary entries for {source_id}")
+    click.echo()
+    for entry in entries[:20]:
+        defn = entry.definition[:60] + ("..." if len(entry.definition) > 60 else "")
+        click.echo(f"  **{entry.term}** — {defn}")
+    if len(entries) > 20:
+        click.echo(f"  ... and {len(entries) - 20} more")
+
+    if emit:
+        from pdf_to_wiki.repair.extract_glossary import emit_glossary_md
+        result_path = emit_glossary_md(source_id, cfg)
+        click.echo(f"\nEmitted glossary: {result_path}")
+
+
 @main.command(name="validate")
 @click.argument("source_id", required=False)
 @click.option("--all", "validate_all_flag", is_flag=True, help="Validate all registered PDFs")
@@ -248,11 +327,12 @@ def validate(ctx: click.Context, source_id: str | None, validate_all_flag: bool)
 @click.option("--force", is_flag=True, help="Force re-run all steps")
 @click.option("--force-step", default=None, help="Force re-run of a specific step")
 @click.option("--skip-extract", is_flag=True, help="Skip text extraction step (emit skeleton only)")
-@click.option("--engine", default=None, help="Extraction engine: marker (default) or pymupdf")
+@click.option("--engine", default=None, help="Extraction engine: marker (default), pymupdf, or docling")
 @click.option("--sections", default=None, help="Comma-separated section IDs or slugs to process")
 @click.option("--page-range", default=None, help="Only process sections within page range (e.g., '10-50')")
+@click.option("--no-validate", is_flag=True, help="Skip post-build validation")
 @click.pass_context
-def build(ctx: click.Context, source_id: str, force: bool, force_step: str | None, skip_extract: bool, engine: str | None, sections: str | None, page_range: str | None) -> None:
+def build(ctx: click.Context, source_id: str, force: bool, force_step: str | None, skip_extract: bool, engine: str | None, sections: str | None, page_range: str | None, no_validate: bool) -> None:
     """Run the full pipeline for a registered PDF source."""
     from pdf_to_wiki.ingest.extract_toc import extract_toc
     from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels as extract_pl
@@ -298,6 +378,16 @@ def build(ctx: click.Context, source_id: str, force: bool, force_step: str | Non
 
     click.echo("Step 6/6: Done!")
     click.echo(f"\n=== Build complete: {len(manifest)} notes emitted ===")
+
+    # Auto-validate unless disabled
+    if not no_validate:
+        click.echo() 
+        click.echo("Validating build...")
+        from pdf_to_wiki.emit.validate import validate_wiki
+        report = validate_wiki(source_id, cfg)
+        click.echo(report.summary())
+        if not report.is_clean:
+            click.echo("⚠ Build has issues. Run 'pdf-to-wiki validate' for details.", err=True)
 
 
 if __name__ == "__main__":

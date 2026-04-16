@@ -42,6 +42,7 @@ The `repair` command re-emits Markdown with the following transformations applie
 8. **<br> in tables** — Convert `<br>` in pipe tables to ` / ` for broad Markdown compatibility
 9. **Joined page refs** — Separate joined game-term + page-ref patterns (e.g., `Parkourp. 48` → `Parkour p. 48`) before annotation
 10. **Running header stripping** — Remove `>> CHAPTER NAME <<` patterns (Shadowrun/Catalyst Game Labs PDFs) from extracted text
+11. **Glossary extraction** — Regex-based extraction of **Term —** definitions from lexicon sections and **Term**: definitions from inline text, with structured field extraction (**Effect:**, **Prerequisites:**, etc.) as separate records
 
 ### Validation Pipeline (post-build)
 
@@ -91,9 +92,10 @@ Engines are registered via `@register_engine("name")` decorator and instantiated
 
 ### Engine Selection
 
-- Config: `extract.engine = "marker"` (default) or `"pymupdf"`
-- CLI: `--engine marker` or `--engine pymupdf`
+- Config: `extract.engine = "marker"` (default), `"pymupdf"`, or `"docling"`
+- CLI: `--engine marker`, `--engine pymupdf`, or `--engine docling`
 - Unknown engines fall back to pymupdf with a warning
+- Docling requires `pip install pdf-to-wiki[docling]`; not registered if not installed
 
 ### Marker Full-PDF Caching Strategy
 

@@ -13,7 +13,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - **Chronicles of Darkness** (301 pages, 521 sections, 37 table sections, 1.63M chars)
 - **Shadowrun 5E Core Rulebook** (502 pages, 544 sections, 3-level deep TOC, 2.66M chars)
 
-**151 tests passing.**
+**191 tests passing.**
 
 ---
 
@@ -101,7 +101,11 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] `--dry-run` mode
 - [x] `--sections` and `--page-range` filters
 - [x] Running header stripping (`>> CHAPTER <<` pattern for Shadowrun/Catalyst PDFs)
-- [ ] Alias/glossary extraction, entity pages, LLM enrichment (deferred to M6)
+- [x] Glossary extraction from bold/italic game terms (lexicon sections + inline definitions)
+- [x] Structured field extraction (**Effect:**, **Prerequisites:**, etc.)
+- [x] Docling engine integration (`[docling]` optional dep, `@register_engine("docling")`)
+- [x] Auto-validate on build (run validation after build, `--no-validate` to skip)
+- [ ] Entity page generation (depends on glossary extraction for entity detection)
 
 ---
 
@@ -162,16 +166,13 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Image alt text populated from section title for accessibility
 - [x] Running header stripping (`>> CHAPTER <<` pattern removal for Shadowrun/Catalyst PDFs)
 - [x] Shadowrun 5E Core Rulebook added to test corpus (502 pages, 544 sections, 3-level TOC)
+- [x] Glossary extraction from bold/italic game terms (62 entries from CoD Lexicon, structured fields separately extracted)
+- [x] Structured field extraction (**Effect:**, **Prerequisites:**, etc. — 995 records from CoD)
+- [x] Docling engine integration (`[docling]` optional dep group, `@register_engine("docling")`)
+- [x] Auto-validate on build (run validation after build, `--no-validate` to skip)
+- [x] 191 tests passing (36 new glossary tests)
 
 ### Next
-
-- [ ] Alias/glossary extraction from bold/italic game terms in body text
-  - CoD output has 303 files with `**bold**` terms and 126 with `*italic*` terms.
-  - Pattern: `**Term**: definition` (e.g., `**Armor**: Armor provides protection...`)
-  - Also: `**Effect:**`, `**Prerequisites:**`, `**Resolution:**` — these are structured fields
-  - Approach: regex-based extraction from `extract_text.json` artifacts, produce a `glossary.json` artifact mapping term → (definition, source_section_id, page)
-  - Emit as `books/<source_id>/glossary.md` with alphabetical term index
-  - Key files: New `src/pdf_to_wiki/repair/extract_glossary.py`, `src/pdf_to_wiki/emit/markdown_writer.py`
 
 - [ ] Entity page generation (auto-stubs for spells, conditions, skills)
   - Many sections already exist for entities (e.g., `the-appendices/appendix-three-conditions/bonded.md`)
@@ -180,13 +181,9 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
   - Bold-term extraction from alias/glossary (above) is a prerequisite for finding entity mentions
   - Key files: New `src/pdf_to_wiki/emit/entity_pages.py`, depends on glossary extraction
 
-- [ ] Docling integration as alternative to Marker (faster, different tradeoffs)
-  - Follow the `BaseEngine` pattern documented in AGENTS.md and `extract/__init__.py`
-  - Install: add `[docling]` optional dependency group for `docling>=1.0.0`
-  - Implement `extract_page_range()` and `extract_full_pdf()` (if Docling supports full-PDF)
-  - Register with `@register_engine("docling")` in `extract/docling_engine.py`
-  - Import in `ingest/extract_text.py` to trigger registration
-  - Key files: New `src/pdf_to_wiki/extract/docling_engine.py`, `pyproject.toml`
+- [ ] Wire glossary extraction into `build` pipeline
+  - Add `--glossary` flag to `build` command to extract glossary and emit glossary.md
+  - Or make it automatic for Marker builds (where bold/italic is preserved)
 
 - [ ] Design extraction artifact schema (structured, not just raw text)
   - Current `extract_text.json` maps `section_id → raw_text_string`
@@ -209,7 +206,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ## Open Questions
 
-1. **Marker vs Docling**: Marker is ~30s/page on CPU (6.5h for CoD 301 pages). Docling may be faster. Should we add Docling as another engine option?
+1. **Marker vs Docling vs Marker**: Resolved — both are now supported as pluggable engines. Docling is ~5-10x faster but has different output tradeoffs.
 2. **Page-label robustness**: Partially resolved — no-TOC PDFs now fall back to font-size heading synthesis. Remaining gap: PDFs with no `/PageLabels` dict AND no detectable font-size headings. Should we attempt to detect Roman-numeral front matter heuristically?
 3. **LLM cache eviction policy**: When should cached LLM responses be invalidated? Current design only invalidates on config hash change.
 4. **Entity extraction approach**: Should we detect game terms via bold/italic patterns, or use an LLM to identify entities? Bold/italic is fast and deterministic; LLM gives richer results but is slow and non-deterministic.
@@ -228,11 +225,34 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 6. **table_extract.py not wired**: PyMuPDF table detection module exists but isn't integrated into the extraction pipeline; Marker handles tables natively.
 7. **6 sections with <50 chars**: Mostly character entries in fiction chapters (God Machine Chronicle NPCs) where content is under sub-headings in the Marker output. Low priority since these are narrative, not rules content.
 8. **~30s/page Marker latency**: CoD build took 6.5h. Consider Docling or GPU acceleration for faster builds.
-9. **validate command doesn't run automatically**: `validate` is a separate manual step — should it be run automatically at the end of `build`?
+9. ~~validate command doesn't run automatically~~: ✅ Fixed — `build` now runs validation automatically; `--no-validate` to skip.
 
 ---
 
 ## Change Log
+
+### 2025-04-18 — Glossary extraction, Docling engine, auto-validate
+
+- Glossary extraction module (`src/pdf_to_wiki/repair/extract_glossary.py`):
+  - Extracts **Term —** definition entries from lexicon/glossary sections (44 CoD Lexicon entries)
+  - Extracts **Term**: inline bold-definition patterns in body text (18 CoD inline entries)
+  - Extracts **Field:** structured fields separately (**Effect:**, **Prerequisites:**, etc. — 995 CoD records)
+  - Deduplicates by lowercase term, preferring lexicon entries over inline
+  - Filters: Marker page-ref artifacts, known false positives, structured field labels, short definitions
+  - Emits `books/<source_id>/glossary.md` with alphabetical index and section links
+  - `glossary` CLI command: `pdf-to-wiki glossary SOURCE_ID [--force] [--emit]`
+- Docling engine integration (`src/pdf_to_wiki/extract/docling_engine.py`):
+  - `@register_engine("docling")` following BaseEngine ABC pattern
+  - `extract_full_pdf()` and `extract_page_range()` with Docling's `DocumentConverter`
+  - Supports Docling's page_range parameter (1-based conversion)
+  - `[docling]` optional dependency group in `pyproject.toml` (`docling>=2.0.0`)
+  - Graceful ImportError handling when `[docling]` extra not installed
+  - ~1-5s/page on CPU (vs. ~30s/page for Marker)
+- Auto-validate on build:
+  - `build` command now runs `validate_wiki()` automatically after emission
+  - `--no-validate` flag to skip post-build validation
+  - Resolves technical debt #9 (validate not auto-run)
+- 36 new glossary tests (191 total passing)
 
 ### 2025-04-18 — Roadmap items: validation, filters, repair fixes, no-TOC fallback, Shadowrun
 
