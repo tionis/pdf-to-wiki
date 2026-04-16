@@ -13,14 +13,36 @@ else:
     import tomli as tomllib
 
 
+def _default_cache_dir() -> str:
+    """Return the platform-specific cache directory.
+
+    Uses 'pdf-to-wiki' subdirectory under the user cache dir:
+      - Linux: ~/.cache/pdf-to-wiki/
+      - macOS: ~/Library/Caches/pdf-to-wiki/
+      - Windows: C:\\Users\\<user>\\AppData\\Local\\pdf-to-wiki\\Cache/
+
+    Can be overridden with PDF_TO_WIKI_CACHE_DIR environment variable.
+    """
+    # Environment variable override takes priority
+    env_dir = os.environ.get("PDF_TO_WIKI_CACHE_DIR")
+    if env_dir:
+        return env_dir
+
+    from platformdirs import user_cache_dir
+    return str(Path(user_cache_dir("pdf-to-wiki")));
+
+
 @dataclass
 class WikiConfig:
     """Configuration for the pdf-to-wiki pipeline."""
 
+    # Output is project-specific (relative to working directory)
     output_dir: str = "./data/outputs/wiki"
     books_dir: str = "books"
-    cache_db_path: str = "./data/cache/cache.db"
-    artifact_dir: str = "./data/artifacts"
+
+    # Cache is global (user-specific, shared across projects)
+    cache_db_path: str = field(default_factory=lambda: str(Path(_default_cache_dir()) / "cache.db"))
+    artifact_dir: str = field(default_factory=lambda: str(Path(_default_cache_dir()) / "artifacts"))
     llm_backend: str = "ollama"
     llm_default_model: str = "glm-5.1:cloud"
     llm_temperature: float = 0.0

@@ -157,7 +157,7 @@ Three tables:
 
 ### Filesystem Artifacts
 
-Files stored under `data/artifacts/<source_id>/`:
+Files stored under `<cache_dir>/artifacts/<sha256[:2]>/<sha256>/` (hash-addressed with 2-char prefix sharding):
 
 | File | Content |
 |------|---------|
@@ -170,6 +170,10 @@ Files stored under `data/artifacts/<source_id>/`:
 | `pdf_images.json` | Image metadata: page, hash, filename, dimensions |
 | `dingbat_manifest.json` | Per-PDF font → replacement map |
 | `emit_manifest.json` | section_id → output path mapping |
+
+The emit manifest is also saved under `artifacts/<source_id>/emit_manifest.json` for stale-file cleanup when a PDF is re-registered with new content (sha256 changes).
+
+Legacy flat paths (`artifacts/<source_id>/`) are still readable as a fallback for older caches.
 
 ### Cache Semantics
 
@@ -270,3 +274,4 @@ data/outputs/wiki/
 14. **Image alt text from context.** Empty image alt text is populated from the section title for accessibility.
 15. **HTML `<br>` in tables.** Converted to ` / ` for broad Markdown compatibility — works in GitHub, GitLab, and CommonMark renderers.
 16. **Joined game-term + page refs.** When a capitalised game term runs into a page reference (e.g., `Parkourp. 48`), the space is inserted so the standard page-ref regex can match.
+17. **Hash-addressed artifact storage.** Artifacts are keyed by the PDF's SHA-256 content hash with 2-char prefix sharding (`artifacts/{sha256[:2]}/{sha256}/`), enabling content-addressable deduplication. Source IDs remain as human-friendly aliases in the SQLite DB. Legacy flat paths (`artifacts/{source_id}/`) are readable as a fallback.

@@ -106,8 +106,11 @@ def validate_wiki(source_id: str, config: WikiConfig) -> ValidationReport:
         db.close()
         return report
 
-    # Load the emit manifest
-    emit_manifest = artifacts.load_json(source_id, "emit_manifest") or {}
+    # Load the emit manifest (resolve SHA-256 for content-addressed lookup)
+    sha256 = db.get_sha256(source_id)
+    db.close()
+    content_key = sha256 or source_id  # fallback
+    emit_manifest = artifacts.load_json(content_key, "emit_manifest") or {}
 
     # Collect all .md files in the book directory
     all_md_files: set[str] = set()

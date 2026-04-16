@@ -13,7 +13,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - **Chronicles of Darkness** (301 pages, 521 sections, 37 table sections, 1.63M chars)
 - **Shadowrun 5E Core Rulebook** (502 pages, 544 sections, 3-level deep TOC, 2.66M chars)
 
-**270 tests passing.**
+**292 tests passing.**
 
 ---
 
@@ -111,6 +111,8 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Entity link injection (`inject_entity_links`, config: `inject_entity_links = true`)
 - [x] BlobForge import (`import-blobforge` CLI, reuse distributed Marker output)
 - [x] 281 tests passing
+- [x] Hash-addressed artifact storage (SHA-256 keyed with prefix sharding, source_id aliases)
+- [x] 292 tests passing
 
 ---
 
@@ -262,6 +264,19 @@ These items were evaluated and removed from the roadmap:
 ---
 
 ## Change Log
+
+### 2025-04-20 — Hash-addressed cache, 292 tests
+
+- Hash-addressed artifact storage:
+  - Artifact files now keyed by SHA-256 content hash with 2-char prefix sharding
+  - Layout: `artifacts/{sha256[:2]}/{sha256}/{name}.json`
+  - Source IDs remain human-friendly aliases in SQLite DB
+  - `CacheDB.get_sha256(source_id)` and `CacheDB.get_source_id_by_hash(sha256)` lookups
+  - Legacy flat paths (`artifacts/{source_id}/`) readable as fallback
+  - Emit manifest also saved by source_id for stale-file cleanup on re-registration
+  - All pipeline modules updated to pass `source.sha256` as content_key
+  - All test files updated to resolve sha256 before artifact lookups
+  - 11 new tests (292 total)
 
 ### 2025-04-19 — BlobForge import, 281 tests
 

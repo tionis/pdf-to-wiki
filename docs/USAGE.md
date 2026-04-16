@@ -314,7 +314,7 @@ books_dir = "books"
 
 [cache]
 db_path = "./data/cache/cache.db"
-artifact_dir = "./data/artifacts"
+artifact_dir = "./data/artifacts"  # Legacy config; resolved via platformdirs if not set
 
 [llm]
 backend = "ollama"
@@ -331,7 +331,7 @@ emit_index_notes = true
 
 ## Intermediate Artifacts
 
-Under `data/artifacts/<source_id>/`:
+Under `<cache_dir>/artifacts/<sha256[:2]>/<sha256>/` (hash-addressed with 2-char prefix sharding):
 
 | File | Content |
 |------|---------|
@@ -342,6 +342,10 @@ Under `data/artifacts/<source_id>/`:
 | `marker_full_md.md` | Marker's cached full-PDF Markdown output |
 | `extract_text.json` | section_id → extracted text |
 | `emit_manifest.json` | section_id → output path |
+
+The cache directory defaults to `~/.cache/pdf-to-wiki/` (XDG-compliant via `platformdirs`),
+overridable via `PDF_TO_WIKI_CACHE_DIR` env var. Legacy flat paths (`artifacts/<source_id>/`)
+are readable as a fallback.
 
 ## Running Tests
 

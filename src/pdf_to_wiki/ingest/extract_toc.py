@@ -45,7 +45,7 @@ def extract_toc(
 
     # Check cache
     if not force and manifests.is_completed(source_id, "toc"):
-        cached = artifacts.load_json(source_id, "toc")
+        cached = artifacts.load_json(source.sha256, "toc")
         if cached is not None:
             logger.info(f"TOC for {source_id} already cached. Use --force to re-extract.")
             entries = [TocEntry(**e) for e in cached]
@@ -81,7 +81,7 @@ def extract_toc(
 
     # Persist
     toc_data = [e.model_dump() for e in entries]
-    artifacts.save_json(source_id, "toc", toc_data)
+    artifacts.save_json(source.sha256, "toc", toc_data)
 
     now = datetime.now(timezone.utc).isoformat()
     prov = ProvenanceRecord(

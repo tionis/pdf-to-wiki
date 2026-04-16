@@ -132,6 +132,22 @@ class CacheDB:
             for r in rows
         ]
 
+    def get_sha256(self, source_id: str) -> str | None:
+        """Look up the SHA-256 hash for a source_id."""
+        row = self.conn.execute(
+            "SELECT sha256 FROM pdf_sources WHERE source_id = ?",
+            (source_id,),
+        ).fetchone()
+        return row["sha256"] if row else None
+
+    def get_source_id_by_hash(self, sha256: str) -> str | None:
+        """Look up the source_id for a SHA-256 hash."""
+        row = self.conn.execute(
+            "SELECT source_id FROM pdf_sources WHERE sha256 = ?",
+            (sha256,),
+        ).fetchone()
+        return row["source_id"] if row else None
+
     # -- Step manifest operations --
 
     def get_step_manifest(self, source_id: str, step: str) -> StepManifest | None:

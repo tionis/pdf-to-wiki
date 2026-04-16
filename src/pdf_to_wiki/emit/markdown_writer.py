@@ -10,6 +10,7 @@ Each generated note includes:
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import yaml
@@ -65,7 +66,7 @@ def emit_skeleton(
     # Check cache
     should_force = force or (force_step == step)
     if not should_force and manifests.is_completed(source_id, step):
-        cached = artifacts.load_json(source_id, "emit_manifest")
+        cached = artifacts.load_json(source.sha256, "emit_manifest")
         if cached is not None:
             logger.info(f"Skeleton for {source_id} already emitted. Use --force to re-emit.")
             db.close()
@@ -73,11 +74,11 @@ def emit_skeleton(
 
     # Dry-run: report what would be done without writing files
     if config.dry_run:
-        tree_data = artifacts.load_json(source_id, "section_tree")
+        tree_data = artifacts.load_json(source.sha256, "section_tree")
         if tree_data is None:
             raise ValueError(f"No section tree for {source_id}. Run 'build-section-tree' first.")
         tree = SectionTree(**tree_data)
-        extracted_text = artifacts.load_json(source_id, "extract_text")
+        extracted_text = artifacts.load_json(source.sha256, "extract_text")
         has_text = extracted_text is not None
         db.close()
         click.echo(f"[DRY RUN] Would emit {len(tree.nodes)} Markdown notes for {source_id}")
@@ -90,7 +91,7 @@ def emit_skeleton(
     manifests.mark_running(source_id, step)
 
     # Load section tree
-    tree_data = artifacts.load_json(source_id, "section_tree")
+    tree_data = artifacts.load_json(source.sha256, "section_tree")
     if tree_data is None:
         raise ValueError(f"No section tree for {source_id}. Run 'build-section-tree' first.")
     tree = SectionTree(**tree_data)
@@ -103,17 +104,17 @@ def emit_skeleton(
         sections_to_emit = list(tree.nodes.keys())
 
     # Load extracted text if available
-    extracted_text: dict[str, str] | None = artifacts.load_json(source_id, "extract_text")
+    extracted_text: dict[str, str] | None = artifacts.load_json(source.sha256, "extract_text")
     if extracted_text is not None:
         logger.info(f"Loaded extracted text for {len(extracted_text)} sections")
     else:
         logger.info("No extracted text found; notes will use placeholders")
 
     # Load dingbat manifest for repair pipeline (if available)
-    dingbat_manifest = artifacts.load_json(source_id, "dingbat_manifest")
+    dingbat_manifest = artifacts.load_json(source.sha256, "dingbat_manifest")
 
     # Load glossary data for entity link injection (if available)
-    glossary_data = artifacts.load_json(source_id, "glossary")
+    glossary_data = artifacts.load_json(source.sha256, "glossary")
     entity_terms: dict[str, str] = {}
     if glossary_data and config.inject_entity_links:
         entity_terms = {e["term"].lower(): e["term"] for e in glossary_data if e.get("term")}
@@ -151,13 +152,20 @@ def emit_skeleton(
         logger.debug(f"Emitted {abs_path}")
 
     # Save updated tree (with output paths)
-    artifacts.save_json(source_id, "section_tree", tree.model_dump())
+    artifacts.save_json(source.sha256, "section_tree", tree.model_dump())
 
     # Remove stale files from previous emission
-    _cleanup_stale_files(source_id, emit_manifest, artifacts, output_dir, config)
+    _cleanup_stale_files(source_id, source.sha256, emit_manifest, artifacts, output_dir, config)
 
-    # Save emit manifest
-    artifacts.save_json(source_id, "emit_manifest", emit_manifest)
+    # Save emit manifest (by content hash — canonical)
+    artifacts.save_json(source.sha256, "emit_manifest", emit_manifest)
+    # Also save by source_id for stale-file cleanup on re-registration
+    # (when PDF content changes, the old manifest is under a different hash)
+    src_dir = artifacts.artifact_dir / source_id
+    src_dir.mkdir(parents=True, exist_ok=True)
+    (src_dir / "emit_manifest.json").write_text(
+        json.dumps(emit_manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
     # Generate book-level index if configured
     if config.obsidian_emit_index_notes:
@@ -238,6 +246,7 @@ def _filter_sections(
 
 def _cleanup_stale_files(
     source_id: str,
+    content_key: str,
     new_manifest: dict[str, str],
     artifacts: "ArtifactStore",
     output_dir: Path,
@@ -252,7 +261,12 @@ def _cleanup_stale_files(
 
     Also removes empty directories left behind after file deletion.
     """
+    # Try to load the old manifest: first by source_id (flat path, always up-to-date),
+    # then by content_key (hash-addressed). source_id is preferred because
+    # it survives re-registration (when PDF content changes -> new sha256).
     old_manifest = artifacts.load_json(source_id, "emit_manifest")
+    if old_manifest is None and source_id != content_key:
+        old_manifest = artifacts.load_json(content_key, "emit_manifest")
     if old_manifest is None:
         logger.debug("No previous manifest found, skipping stale file cleanup")
         return
@@ -369,7 +383,7 @@ def emit_global_index(config: WikiConfig) -> None:
 
     for source in sources:
         # Check if section tree exists
-        tree_data = artifacts.load_json(source.source_id, "section_tree")
+        tree_data = artifacts.load_json(source.sha256, "section_tree")
         chapter_count = 0
         if tree_data:
             tree = SectionTree(**tree_data)

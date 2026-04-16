@@ -49,7 +49,7 @@ def extract_page_labels(
 
     # Check cache
     if not force and manifests.is_completed(source_id, "page_labels"):
-        cached = artifacts.load_json(source_id, "page_labels")
+        cached = artifacts.load_json(source.sha256, "page_labels")
         if cached is not None:
             logger.info(f"Page labels for {source_id} already cached. Use --force to re-extract.")
             labels = [PageLabel(**e) for e in cached]
@@ -64,7 +64,7 @@ def extract_page_labels(
 
     # Persist
     label_data = [pl.model_dump() for pl in page_labels]
-    artifacts.save_json(source_id, "page_labels", label_data)
+    artifacts.save_json(source.sha256, "page_labels", label_data)
 
     now = datetime.now(timezone.utc).isoformat()
     prov = ProvenanceRecord(

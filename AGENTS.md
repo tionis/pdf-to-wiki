@@ -26,7 +26,7 @@ These are **non-negotiable** unless explicitly reconsidered:
 - **Default engine is Marker** (high quality, ML-powered, ~30s/page). PyMuPDF is the fast fallback (~0.1s/page).
 - **Use LLMs only for non-deterministic tasks.** TOC extraction, page counting, slug generation, page-label extraction, Markdown emission, and engine dispatch must remain deterministic. Marker's ML inference is considered a "deterministic-ish" extraction step (cached, not LLM-driven). LLM enrichment has been removed from the roadmap — the deterministic pipeline is sufficient.
 - **Cache/provenance is built in from the start.** Every expensive step checks the cache before running and records provenance after.
-- **Per-step artifacts on disk.** Intermediate results are persisted under the artifact directory.
+- **Per-step artifacts on disk.** Intermediate results are persisted under the globally-configured cache directory, hash-addressed by SHA-256 with 2-char prefix sharding (`artifacts/{sha256[:2]}/{sha256}/`). Source IDs serve as human-friendly aliases in the SQLite DB.
 - **Design for multi-PDF ingestion.** All section IDs are namespaced by `source_id` (e.g., `chronicles-of-darkness/rules/combat`).
 - **Standard Markdown relative links** (`[Title](../path/section.md)`) — NOT Obsidian `[[wiki-links]]`.
 - **Parent sections clip content** to only pages before their first child's start page, preventing massive duplication.
@@ -46,7 +46,7 @@ These are **non-negotiable** unless explicitly reconsidered:
   - `AGENTS.md` (if agent-facing conventions change)
 - **Run the test suite** before declaring work done: `uv run pytest tests/ -v`
 - **Tests must use `engine="pymupdf"`** — Marker requires ML models and takes minutes per test.
-- **231 tests passing** — run `uv run pytest tests/ -q` to verify.
+- **292 tests passing** — run `uv run pytest tests/ -q` to verify.
 
 ---
 

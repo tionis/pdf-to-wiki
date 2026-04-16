@@ -64,7 +64,7 @@ def register_pdf(
     db.upsert_pdf_source(source, registered_at=now)
 
     # Save source metadata as artifact
-    artifacts.save_json(source_id, "pdf_source", source.model_dump())
+    artifacts.save_json(source.sha256, "pdf_source", source.model_dump())
 
     # Record provenance
     prov = ProvenanceRecord(

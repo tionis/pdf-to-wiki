@@ -48,7 +48,7 @@ def build_section_tree(
 
     # Check cache
     if not force and manifests.is_completed(source_id, "section_tree"):
-        cached = artifacts.load_json(source_id, "section_tree")
+        cached = artifacts.load_json(source.sha256, "section_tree")
         if cached is not None:
             logger.info(f"Section tree for {source_id} already cached. Use --force to rebuild.")
             tree = SectionTree(**cached)
@@ -65,12 +65,12 @@ def build_section_tree(
     manifests.mark_running(source_id, "section_tree")
 
     # Load artifacts
-    toc_data = artifacts.load_json(source_id, "toc")
+    toc_data = artifacts.load_json(source.sha256, "toc")
     if toc_data is None:
         raise ValueError(f"No TOC data for {source_id}. Run 'toc' step first.")
     toc_entries = [TocEntry(**e) for e in toc_data]
 
-    label_data = artifacts.load_json(source_id, "page_labels")
+    label_data = artifacts.load_json(source.sha256, "page_labels")
     page_labels: list[PageLabel] = []
     if label_data is not None:
         page_labels = [PageLabel(**e) for e in label_data]
@@ -81,7 +81,7 @@ def build_section_tree(
 
     # Persist
     tree_data = tree.model_dump()
-    artifacts.save_json(source_id, "section_tree", tree_data)
+    artifacts.save_json(source.sha256, "section_tree", tree_data)
 
     now = datetime.now(timezone.utc).isoformat()
     prov = ProvenanceRecord(

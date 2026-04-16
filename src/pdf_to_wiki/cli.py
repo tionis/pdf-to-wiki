@@ -240,7 +240,7 @@ def glossary(ctx: click.Context, source_id: str, force: bool, emit: bool) -> Non
     should_force = force
 
     if not should_force:
-        cached = artifacts.load_json(source_id, "glossary")
+        cached = artifacts.load_json(_resolve_content_key(source_id, cfg), "glossary")
         if cached is not None:
             click.echo(f"Glossary for {source_id} already extracted ({len(cached)} entries). Use --force to re-extract.")
             if emit:
@@ -257,7 +257,7 @@ def glossary(ctx: click.Context, source_id: str, force: bool, emit: bool) -> Non
         raise SystemExit(1)
 
     # Extract text if needed
-    text_data = artifacts.load_json(source_id, "extract_text")
+    text_data = artifacts.load_json(_resolve_content_key(source_id, cfg), "extract_text")
     if text_data is None:
         click.echo("No extracted text found. Running text extraction first...")
         text_data = extract_text(source_id, cfg, force=False)
@@ -265,7 +265,7 @@ def glossary(ctx: click.Context, source_id: str, force: bool, emit: bool) -> Non
         text_data = {k: v for k, v in text_data.items()}
 
     # Load section tree
-    tree_data = artifacts.load_json(source_id, "section_tree")
+    tree_data = artifacts.load_json(_resolve_content_key(source_id, cfg), "section_tree")
     if tree_data is None:
         click.echo(f"No section tree for {source_id}. Run 'build-section-tree' first.", err=True)
         raise SystemExit(1)
@@ -276,7 +276,7 @@ def glossary(ctx: click.Context, source_id: str, force: bool, emit: bool) -> Non
 
     # Save artifact
     glossary_data = [e.to_dict() for e in entries]
-    artifacts.save_json(source_id, "glossary", glossary_data)
+    artifacts.save_json(_resolve_content_key(source_id, cfg), "glossary", glossary_data)
 
     # Track in manifest
     manifests = StepManifestStore(CacheDB(cfg.resolved_cache_db_path()))
@@ -317,7 +317,7 @@ def entities(ctx: click.Context, source_id: str, force: bool) -> None:
     # Check that glossary data exists
     from pdf_to_wiki.cache.artifact_store import ArtifactStore
     artifacts = ArtifactStore(cfg.resolved_artifact_dir())
-    glossary_data = artifacts.load_json(source_id, "glossary")
+    glossary_data = artifacts.load_json(_resolve_content_key(source_id, cfg), "glossary")
     if not glossary_data:
         click.echo(f"No glossary data for {source_id}. Run 'pdf-to-wiki glossary' first.", err=True)
         raise SystemExit(1)
@@ -419,7 +419,7 @@ def tables(ctx: click.Context, source_id: str, min_rows: int, min_cols: int, sec
     artifacts = ArtifactStore(cfg.resolved_artifact_dir())
 
     # Load extracted text
-    text_data = artifacts.load_json(source_id, "extract_text")
+    text_data = artifacts.load_json(_resolve_content_key(source_id, cfg), "extract_text")
     if not text_data:
         click.echo(f"No extracted text for {source_id}. Run 'build' first.", err=True)
         raise SystemExit(1)
@@ -532,8 +532,8 @@ def build(ctx: click.Context, source_id: str, force: bool, force_step: str | Non
         artifacts = ArtifactStore(cfg.resolved_artifact_dir())
 
         # Load text and tree for glossary extraction
-        text_data = artifacts.load_json(source_id, "extract_text")
-        tree_data = artifacts.load_json(source_id, "section_tree")
+        text_data = artifacts.load_json(_resolve_content_key(source_id, cfg), "extract_text")
+        tree_data = artifacts.load_json(_resolve_content_key(source_id, cfg), "section_tree")
 
         if text_data and tree_data:
             tree = SectionTree(**tree_data)
@@ -541,7 +541,7 @@ def build(ctx: click.Context, source_id: str, force: bool, force_step: str | Non
 
             # Save artifact
             glossary_data = [e.to_dict() for e in entries]
-            artifacts.save_json(source_id, "glossary", glossary_data)
+            artifacts.save_json(_resolve_content_key(source_id, cfg), "glossary", glossary_data)
 
             # Track in manifest
             manifests = StepManifestStore(CacheDB(cfg.resolved_cache_db_path()))
@@ -674,14 +674,14 @@ def import_blobforge_cmd(ctx: click.Context, pdf_path: str, zip_path: str | None
 
             click.echo("Step 6/7: Extracting glossary...")
             artifacts = ArtifactStore(cfg.resolved_artifact_dir())
-            text_data = artifacts.load_json(source_id, "extract_text")
-            tree_data = artifacts.load_json(source_id, "section_tree")
+            text_data = artifacts.load_json(_resolve_content_key(source_id, cfg), "extract_text")
+            tree_data = artifacts.load_json(_resolve_content_key(source_id, cfg), "section_tree")
 
             if text_data and tree_data:
                 tree = SectionTree(**tree_data)
                 entries = extract_gloss(text_data, tree, cfg)
                 glossary_data = [e.to_dict() for e in entries]
-                artifacts.save_json(source_id, "glossary", glossary_data)
+                artifacts.save_json(_resolve_content_key(source_id, cfg), "glossary", glossary_data)
 
                 from pdf_to_wiki.cache.manifests import StepManifestStore
                 from pdf_to_wiki.cache.db import CacheDB
@@ -719,3 +719,12 @@ def _parse_page_range(pr: str) -> tuple[int, int]:
         return (start, end)
     except ValueError:
         raise click.BadParameter(f"Invalid page range: {pr!r}. Use format 'START-END' or 'PAGE'.") from None
+
+
+def _resolve_content_key(source_id: str, config: WikiConfig) -> str:
+    """Resolve a source_id to the SHA-256 content key for artifact lookups."""
+    from pdf_to_wiki.cache.db import CacheDB
+    db = CacheDB(config.resolved_cache_db_path())
+    sha256 = db.get_sha256(source_id)
+    db.close()
+    return sha256 or source_id  # fallback to source_id if not registered

@@ -115,10 +115,11 @@ def _setup_artifacts(cfg, source_id, tree, glossary_data):
     from pdf_to_wiki.cache.artifact_store import ArtifactStore
     from pdf_to_wiki.cache.db import CacheDB
 
-    # Save tree and glossary to artifacts
+    # Save tree and glossary to artifacts (using sha256 as content key)
     artifacts = ArtifactStore(cfg.resolved_artifact_dir())
-    artifacts.save_json(source_id, "section_tree", tree.model_dump())
-    artifacts.save_json(source_id, "glossary", glossary_data)
+    sha256 = "abc123"
+    artifacts.save_json(sha256, "section_tree", tree.model_dump())
+    artifacts.save_json(sha256, "glossary", glossary_data)
 
     # Register the source in cache DB
     from pdf_to_wiki.models import PdfSource

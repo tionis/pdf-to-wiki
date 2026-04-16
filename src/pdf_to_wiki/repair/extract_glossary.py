@@ -467,17 +467,24 @@ def emit_glossary_md(source_id: str, config: "WikiConfig") -> "Path":  # noqa: F
     from pathlib import Path
 
     from pdf_to_wiki.cache.artifact_store import ArtifactStore
+    from pdf_to_wiki.cache.db import CacheDB
     from pdf_to_wiki.emit.obsidian_paths import relative_markdown_link
 
+    # Resolve SHA-256 for content-addressed artifact lookup
+    db = CacheDB(config.resolved_cache_db_path())
+    sha256 = db.get_sha256(source_id)
+    db.close()
+    content_key = sha256 or source_id  # fallback to source_id if not registered
+
     artifacts = ArtifactStore(config.resolved_artifact_dir())
-    glossary_data = artifacts.load_json(source_id, "glossary")
+    glossary_data = artifacts.load_json(content_key, "glossary")
 
     if not glossary_data:
         logger.warning(f"No glossary data for {source_id}. Run 'glossary' command first.")
         return Path("")
 
     # Load section tree for link computation
-    tree_data = artifacts.load_json(source_id, "section_tree")
+    tree_data = artifacts.load_json(content_key, "section_tree")
     if tree_data is None:
         logger.warning(f"No section tree for {source_id}. Cannot create glossary links.")
         tree = None

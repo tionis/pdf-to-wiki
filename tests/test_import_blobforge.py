@@ -13,6 +13,16 @@ from pdf_to_wiki.config import WikiConfig
 from pdf_to_wiki.ingest.import_blobforge import import_blobforge, _read_from_zip
 
 
+def _resolve_content_key(source_id: str, config: WikiConfig) -> str:
+    """Resolve sha256 content key for artifact lookups in tests."""
+    from pdf_to_wiki.cache.artifact_store import ArtifactStore
+    from pdf_to_wiki.cache.db import CacheDB
+    db = CacheDB(config.resolved_cache_db_path())
+    sha256 = db.get_sha256(source_id)
+    db.close()
+    return sha256 or source_id
+
+
 class TestReadFromZip:
     """Tests for reading content from BlobForge conversion zips."""
 
@@ -111,7 +121,7 @@ class TestImportBlobForge:
 
         # Verify marker artifact was saved
         artifacts = ArtifactStore(config.resolved_artifact_dir())
-        cached_md = artifacts.load_text(source_id, "marker_full_md", suffix=".md")
+        cached_md = artifacts.load_text(_resolve_content_key(source_id, config), "marker_full_md", suffix=".md")
         assert cached_md == content
 
         # Verify PDF is registered
@@ -147,7 +157,7 @@ class TestImportBlobForge:
 
         # Verify artifact
         artifacts = ArtifactStore(config.resolved_artifact_dir())
-        cached_md = artifacts.load_text(result["source_id"], "marker_full_md", suffix=".md")
+        cached_md = artifacts.load_text(_resolve_content_key(result["source_id"], config), "marker_full_md", suffix=".md")
         assert cached_md == content
 
     def test_import_skip_existing(self, tmp_path: Path, config: WikiConfig):
@@ -185,7 +195,7 @@ class TestImportBlobForge:
 
         # Original content should still be there
         artifacts = ArtifactStore(config.resolved_artifact_dir())
-        cached_md = artifacts.load_text(source_id, "marker_full_md", suffix=".md")
+        cached_md = artifacts.load_text(_resolve_content_key(source_id, config), "marker_full_md", suffix=".md")
         assert cached_md == content1
 
     def test_import_force_overwrite(self, tmp_path: Path, config: WikiConfig):
@@ -219,7 +229,7 @@ class TestImportBlobForge:
 
         # New content should be there
         artifacts = ArtifactStore(config.resolved_artifact_dir())
-        cached_md = artifacts.load_text(result["source_id"], "marker_full_md", suffix=".md")
+        cached_md = artifacts.load_text(_resolve_content_key(result["source_id"], config), "marker_full_md", suffix=".md")
         assert cached_md == content2
 
     def test_import_requires_zip_or_markdown(self, tmp_path: Path, config: WikiConfig):
@@ -247,7 +257,7 @@ class TestImportBlobForge:
         )
 
         artifacts = ArtifactStore(config.resolved_artifact_dir())
-        saved_info = artifacts.load_json(result["source_id"], "blobforge_info")
+        saved_info = artifacts.load_json(_resolve_content_key(result["source_id"], config), "blobforge_info")
         assert saved_info is not None
         assert saved_info["hash"] == "deadbeef"
 

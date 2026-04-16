@@ -140,8 +140,15 @@ class TestEndToEnd:
         extract_page_labels("book", config)
         build_section_tree("book", config)
 
+        # Resolve SHA-256 for hash-addressed artifact lookup
+        from pdf_to_wiki.cache.db import CacheDB
+        db = CacheDB(config.resolved_cache_db_path())
+        sha256 = db.get_sha256("book")
+        db.close()
+        content_key = sha256 or "book"  # fallback
+
         artifacts = ArtifactStore(config.resolved_artifact_dir())
-        assert artifacts.has_artifact("book", "pdf_source")
-        assert artifacts.has_artifact("book", "toc")
-        assert artifacts.has_artifact("book", "page_labels")
-        assert artifacts.has_artifact("book", "section_tree")
+        assert artifacts.has_artifact(content_key, "pdf_source")
+        assert artifacts.has_artifact(content_key, "toc")
+        assert artifacts.has_artifact(content_key, "page_labels")
+        assert artifacts.has_artifact(content_key, "section_tree")

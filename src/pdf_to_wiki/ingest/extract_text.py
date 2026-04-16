@@ -68,7 +68,7 @@ def extract_text(
 
     # Check cache
     if not force and manifests.is_completed(source_id, "extract_text"):
-        cached = artifacts.load_json(source_id, "extract_text")
+        cached = artifacts.load_json(source.sha256, "extract_text")
         if cached is not None:
             logger.info(f"Text extraction for {source_id} already cached. Use --force to re-extract.")
             db.close()
@@ -76,7 +76,7 @@ def extract_text(
 
     # Dry-run: report what would be done without running extraction
     if config.dry_run:
-        tree_data = artifacts.load_json(source_id, "section_tree")
+        tree_data = artifacts.load_json(source.sha256, "section_tree")
         if tree_data is None:
             raise ValueError(f"No section tree for {source_id}. Run 'build-section-tree' first.")
         tree = SectionTree(**tree_data)
@@ -103,7 +103,7 @@ def extract_text(
     manifests.mark_running(source_id, "extract_text")
 
     # Load section tree
-    tree_data = artifacts.load_json(source_id, "section_tree")
+    tree_data = artifacts.load_json(source.sha256, "section_tree")
     if tree_data is None:
         raise ValueError(f"No section tree for {source_id}. Run 'build-section-tree' first.")
     tree = SectionTree(**tree_data)
@@ -150,7 +150,7 @@ def extract_text(
     _extract_dingbats(source, config)
 
     # Persist
-    artifacts.save_json(source_id, "extract_text", extracted)
+    artifacts.save_json(source.sha256, "extract_text", extracted)
 
     now = datetime.now(timezone.utc).isoformat()
     prov = ProvenanceRecord(
@@ -198,14 +198,14 @@ def _extract_with_marker(source, tree: SectionTree, engine, config: WikiConfig) 
     artifacts = ArtifactStore(config.resolved_artifact_dir())
 
     # Check for cached full-PDF Marker output
-    full_md = artifacts.load_text(source.source_id, "marker_full_md", suffix=".md")
+    full_md = artifacts.load_text(source.sha256, "marker_full_md", suffix=".md")
 
     if full_md is None:
         logger.info("Running Marker full-PDF conversion (one-time, cached after)...")
         full_md = engine.extract_full_pdf(source.path)
 
         # Cache the raw markdown for reuse
-        artifacts.save_text(source.source_id, "marker_full_md", full_md, suffix=".md")
+        artifacts.save_text(source.sha256, "marker_full_md", full_md, suffix=".md")
         logger.info(f"Marker full-PDF conversion complete: {len(full_md):,} chars cached")
     else:
         logger.info(f"Using cached Marker output: {len(full_md):,} chars")
@@ -379,7 +379,7 @@ def _extract_images(source, config: WikiConfig) -> dict[str, str]:
     output_dir = config.resolved_output_dir()
 
     # Check for cached image map
-    cached_images = artifacts.load_json(source.source_id, "pdf_images")
+    cached_images = artifacts.load_json(source.sha256, "pdf_images")
     if cached_images:
         # Verify at least one referenced image still exists.
         # Images are stored in books/source_id/.assets/ but the image_map
@@ -400,7 +400,7 @@ def _extract_images(source, config: WikiConfig) -> dict[str, str]:
 
     # Cache the mapping
     if image_map:
-        artifacts.save_json(source.source_id, "pdf_images", image_map)
+        artifacts.save_json(source.sha256, "pdf_images", image_map)
 
     return image_map
 
@@ -421,7 +421,7 @@ def _extract_dingbats(source, config: WikiConfig) -> dict[str, list[str]]:
     artifacts = ArtifactStore(config.resolved_artifact_dir())
 
     # Check for cached manifest
-    cached = artifacts.load_json(source.source_id, "dingbat_manifest")
+    cached = artifacts.load_json(source.sha256, "dingbat_manifest")
     if cached is not None:
         return cached
 
@@ -430,6 +430,6 @@ def _extract_dingbats(source, config: WikiConfig) -> dict[str, list[str]]:
 
     # Cache it
     if manifest:
-        artifacts.save_json(source.source_id, "dingbat_manifest", manifest)
+        artifacts.save_json(source.sha256, "dingbat_manifest", manifest)
 
     return manifest

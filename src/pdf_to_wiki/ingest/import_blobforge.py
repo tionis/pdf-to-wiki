@@ -78,12 +78,13 @@ def import_blobforge(
 
     source = register_pdf(pdf_path, config, force=force)
     source_id = source.source_id
+    sha256 = source.sha256
     logger.info(f"Registered PDF: {source_id} ({source.page_count} pages)")
 
     # Step 3: Place the Marker output as the cached artifact
     artifacts = ArtifactStore(config.resolved_artifact_dir())
 
-    marker_artifact_path = artifacts.artifact_path(source_id, "marker_full_md", suffix=".md")
+    marker_artifact_path = artifacts.artifact_path(sha256, "marker_full_md", suffix=".md")
     if marker_artifact_path.exists() and not force:
         existing_size = marker_artifact_path.stat().st_size
         logger.warning(
@@ -97,7 +98,7 @@ def import_blobforge(
             "message": "Marker artifact already exists; use --force to overwrite",
         }
 
-    artifacts.save_text(source_id, "marker_full_md", content_md, suffix=".md")
+    artifacts.save_text(sha256, "marker_full_md", content_md, suffix=".md")
     logger.info(f"Cached Marker output: {len(content_md):,} chars → {marker_artifact_path}")
 
     # Step 4: Also extract images from the zip if available
@@ -107,7 +108,7 @@ def import_blobforge(
 
     # Step 5: Save the info.json as a blobforge_info artifact (for reference)
     if info:
-        artifacts.save_json(source_id, "blobforge_info", info)
+        artifacts.save_json(sha256, "blobforge_info", info)
         logger.info(f"Saved BlobForge metadata: {list(info.keys())}")
 
     return {
