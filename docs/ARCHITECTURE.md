@@ -169,6 +169,8 @@ Files stored under `<cache_dir>/artifacts/<sha256[:2]>/<sha256>/` (hash-addresse
 | `extract_text.json` | section_id → extracted text mapping (~860KB for CoD) |
 | `pdf_images.json` | Image metadata: page, hash, filename, dimensions |
 | `dingbat_manifest.json` | Per-PDF font → replacement map |
+| `glossary.json` | Extracted glossary entries (terms, definitions, source sections) |
+| `blobforge_info.json` | BlobForge import metadata (hash, filename, tags) |
 | `emit_manifest.json` | section_id → output path mapping |
 
 The emit manifest is also saved under `artifacts/<source_id>/emit_manifest.json` for stale-file cleanup when a PDF is re-registered with new content (sha256 changes).
@@ -199,25 +201,32 @@ src/pdf_to_wiki/
 │   ├── extract_toc.py   # TOC extraction via PyMuPDF
 │   ├── extract_page_labels.py  # Page labels via pypdf
 │   ├── extract_text.py  # Text extraction orchestration (engine dispatch, caching, overlapping siblings)
-│   └── build_section_tree.py   # Section tree: single-root unwrapping, slug dedup, parent clipping
+│   ├── build_section_tree.py   # Section tree: single-root unwrapping, slug dedup, parent clipping
+│   ├── diagnostics.py   # Font/encoding diagnostics utility (diagnose CLI)
+│   └── import_blobforge.py   # BlobForge import: reuse distributed Marker output
 ├── extract/
 │   ├── __init__.py      # BaseEngine ABC, engine registry
 │   ├── pymupdf_engine.py # PyMuPDF engine (font-size heading detection, structured extraction, dingbats)
 │   ├── marker_engine.py  # Marker engine (full-PDF conversion, 3-pass heading split)
+│   ├── docling_engine.py # Docling engine (fast ML extraction, [docling] optional dep)
 │   └── pdf_images.py     # Image extraction, dedup, reference rewriting
 ├── repair/
 │   ├── clean_text.py    # Structured extraction + cleaning + Marker artifact cleanup
 │   ├── normalize.py      # OCR repair, bullets, whitespace
-│   └── rewrite_refs.py   # Page-ref annotation/rewriting to Markdown links
+│   ├── rewrite_refs.py   # Page-ref annotation/rewriting to Markdown links
+│   ├── extract_glossary.py  # Glossary extraction (lexicon + inline, glossary.md emission)
+│   └── structured_tables.py # Structured table data extraction (JSON/CSV export, tables CLI)
 ├── emit/
 │   ├── markdown_writer.py  # Markdown emission (frontmatter, asset paths, stale cleanup, section/page filters)
 │   ├── obsidian_paths.py   # Deterministic path generation
+│   ├── entity_pages.py     # Entity page generation from glossary (cross-reference stubs, link injection)
 │   └── validate.py         # Post-build validation (broken links, orphan files, missing images)
 ├── llm/                 # (Stub) LLM enrichment dropped from roadmap
 ├── cache/
 │   ├── db.py            # SQLite cache database
-│   ├── artifact_store.py # Filesystem artifact storage
-│   └── manifests.py     # Step manifest tracking
+│   ├── artifact_store.py # Filesystem artifact storage (hash-addressed, SHA-256 sharded)
+│   ├── manifests.py     # Step manifest tracking
+│   └── migrate.py       # Cache migration (source_id → hash-addressed layout)
 └── index/               # Global catalog and link graph
 ```
 

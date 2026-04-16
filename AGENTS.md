@@ -46,7 +46,7 @@ These are **non-negotiable** unless explicitly reconsidered:
   - `AGENTS.md` (if agent-facing conventions change)
 - **Run the test suite** before declaring work done: `uv run pytest tests/ -v`
 - **Tests must use `engine="pymupdf"`** — Marker requires ML models and takes minutes per test.
-- **292 tests passing** — run `uv run pytest tests/ -q` to verify.
+- **299 tests passing** — run `uv run pytest tests/ -q` to verify.
 
 ---
 
@@ -78,10 +78,17 @@ These are **non-negotiable** unless explicitly reconsidered:
 | `src/pdf_to_wiki/emit/markdown_writer.py` | Markdown emission with YAML frontmatter, `_rewrite_asset_paths()` (alt text population), `_filter_sections()`, stale file cleanup |
 | `src/pdf_to_wiki/emit/obsidian_paths.py` | Deterministic path generation (slug → directory/file structure) |
 | `src/pdf_to_wiki/emit/validate.py` | Post-build validation: broken links, missing images, orphan files, unresolved page refs |
-| `src/pdf_to_wiki/cache/` | SQLite cache, artifact store, step manifests |
+| `src/pdf_to_wiki/cache/migrate.py` | Cache migration: old source_id layout → hash-addressed layout (`migrate-cache` CLI) |
+| `src/pdf_to_wiki/ingest/diagnostics.py` | Font/encoding diagnostics (`diagnose` CLI) |
+| `src/pdf_to_wiki/ingest/import_blobforge.py` | BlobForge import: reuse distributed Marker output (`import-blobforge` CLI) |
+| `src/pdf_to_wiki/repair/structured_tables.py` | Structured table extraction: pipe-table parsing, JSON/CSV export (`tables` CLI) |
+| `src/pdf_to_wiki/repair/extract_glossary.py` | Glossary extraction: **Term —** lexicon + **Term:** inline, glossary.md emission |
+| `src/pdf_to_wiki/emit/entity_pages.py` | Entity pages from glossary: cross-reference stubs, `inject_entity_links()`, see-also links |
+| `src/pdf_to_wiki/extract/docling_engine.py` | Docling engine: IBM Docling fast extraction (`[docling]` optional dep) |
+| `src/pdf_to_wiki/cache/` | SQLite cache, artifact store (hash-addressed), step manifests |
 | `src/pdf_to_wiki/llm/` | (Stub) Dropped from roadmap — kept as placeholder |
 | `data/` | Runtime data (cache, artifacts, outputs) — gitignored |
-| `tests/` | Test suite (219 tests) |
+| `tests/` | Test suite (299 tests) |
 
 ---
 
@@ -135,12 +142,18 @@ pdf-to-wiki inspect <source_id>       # Show PDF metadata
 pdf-to-wiki toc <source_id>           # Extract/display TOC
 pdf-to-wiki page-labels <source_id>   # Extract/display page labels
 pdf-to-wiki build-section-tree <source_id>  # Build canonical section tree
-pdf-to-wiki extract <source_id>        # Extract text content (--engine marker|pymupdf)
+pdf-to-wiki extract <source_id>        # Extract text content (--engine marker|pymupdf|docling)
 pdf-to-wiki emit-skeleton <source_id> # Emit Markdown skeleton
-pdf-to-wiki build <source_id>         # Run full pipeline (6 steps)
+pdf-to-wiki build <source_id>         # Run full pipeline (6+ steps)
 pdf-to-wiki build-all                  # Build all registered PDFs + global index
 pdf-to-wiki repair <source_id>        # Re-emit with repair/normalization
 pdf-to-wiki validate <source_id>       # Check for broken links, missing images, orphans
+pdf-to-wiki glossary <source_id>       # Extract glossary entries (#x2014;emit to emit glossary.md)
+pdf-to-wiki entities <source_id>       # Generate entity cross-reference stubs
+pdf-to-wiki diagnose <source_id>       # Font/encoding diagnostics [--pages P-R] [--json]
+pdf-to-wiki tables <source_id>         # Extract structured table data [--csv] [--min-rows N]
+pdf-to-wiki import-blobforge <pdf>     # Import BlobForge Marker output [--zip|--markdown] [--build]
+pdf-to-wiki migrate-cache              # Migrate old cache to hash-addressed layout [--dry-run]
 ```
 
 Common flags: `--force`, `--force-step <step>`, `--engine <name>`, `--skip-extract`, `--dry-run`, `--sections <list>`, `--page-range START-END`, `--config <path>`, `--output-dir <dir>`, `--cache-dir <dir>`

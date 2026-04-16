@@ -13,7 +13,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - **Chronicles of Darkness** (301 pages, 521 sections, 37 table sections, 1.63M chars)
 - **Shadowrun 5E Core Rulebook** (502 pages, 544 sections, 3-level deep TOC, 2.66M chars)
 
-**292 tests passing.**
+**299 tests passing.**
 
 ---
 
@@ -112,7 +112,8 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] BlobForge import (`import-blobforge` CLI, reuse distributed Marker output)
 - [x] 281 tests passing
 - [x] Hash-addressed artifact storage (SHA-256 keyed with prefix sharding, source_id aliases)
-- [x] 292 tests passing
+- [x] Cache migration utility (migrate-cache CLI, old source_id → hash-addressed layout)
+- [x] 299 tests passing
 
 ---
 
@@ -265,7 +266,7 @@ These items were evaluated and removed from the roadmap:
 
 ## Change Log
 
-### 2025-04-20 — Hash-addressed cache, 292 tests
+### 2025-04-20 — Hash-addressed cache + migration, 299 tests
 
 - Hash-addressed artifact storage:
   - Artifact files now keyed by SHA-256 content hash with 2-char prefix sharding
@@ -277,6 +278,17 @@ These items were evaluated and removed from the roadmap:
   - All pipeline modules updated to pass `source.sha256` as content_key
   - All test files updated to resolve sha256 before artifact lookups
   - 11 new tests (292 total)
+
+- Cache migration utility:
+  - New module: `src/pdf_to_wiki/cache/migrate.py`
+  - `migrate_cache()`: reads source_id→sha256 from old DB, copies artifacts to hash-sharded paths
+  - Copies SQLite DB to global cache directory
+  - Saves emit_manifest by source_id for stale-file cleanup
+  - Idempotent: skips already-migrated dirs
+  - Respects `--dry-run`
+  - CLI: `pdf-to-wiki migrate-cache [--old-cache-dir DIR] [--dry-run]`
+  - 7 new tests (299 total)
+  - Successfully migrated 3 existing books (Storypath, CoD, Shadowrun) to `~/.cache/pdf-to-wiki/`
 
 ### 2025-04-19 — BlobForge import, 281 tests
 

@@ -295,6 +295,27 @@ pdf-to-wiki tables my-rulebook --min-rows 3
 pdf-to-wiki tables my-rulebook --section weapons
 ```
 
+### `pdf-to-wiki migrate-cache`
+
+Migrate an old source_id-keyed cache directory to the new hash-addressed layout. Reads source_id → sha256 mappings from the old SQLite DB and copies artifacts to `artifacts/{sha256[:2]}/{sha256}/`. Also copies the DB to the global cache directory.
+
+```bash
+# Migrate from the default ./data/ directory
+pdf-to-wiki migrate-cache
+
+# Migrate from a custom old cache directory
+pdf-to-wiki migrate-cache --old-cache-dir /path/to/old/cache
+
+# Dry run — report what would be moved without copying
+pdf-to-wiki migrate-cache --dry-run
+```
+
+Options:
+- `--old-cache-dir <dir>` — Root of the old cache directory (default: `./data`)
+- `--dry-run` — Report what would be done without copying files
+
+Idempotent: re-running on already-migrated data skips existing files.
+
 ## Global Options
 
 - `--config <path>` — Path to a configuration TOML file
@@ -313,8 +334,8 @@ output_dir = "./data/outputs/wiki"
 books_dir = "books"
 
 [cache]
-db_path = "./data/cache/cache.db"
-artifact_dir = "./data/artifacts"  # Legacy config; resolved via platformdirs if not set
+db_path = "./data/cache/cache.db"        # Optional; defaults to ~/.cache/pdf-to-wiki/cache.db
+artifact_dir = "./data/artifacts"            # Optional; defaults to ~/.cache/pdf-to-wiki/artifacts
 
 [llm]
 backend = "ollama"
@@ -341,6 +362,9 @@ Under `<cache_dir>/artifacts/<sha256[:2]>/<sha256>/` (hash-addressed with 2-char
 | `section_tree.json` | Full section tree |
 | `marker_full_md.md` | Marker's cached full-PDF Markdown output |
 | `extract_text.json` | section_id → extracted text |
+| `pdf_images.json` | Image metadata (page, hash, filename, dimensions) |
+| `dingbat_manifest.json` | Per-PDF font → replacement map |
+| `glossary.json` | Extracted glossary entries |
 | `emit_manifest.json` | section_id → output path |
 
 The cache directory defaults to `~/.cache/pdf-to-wiki/` (XDG-compliant via `platformdirs`),
