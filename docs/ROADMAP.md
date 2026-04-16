@@ -8,9 +8,10 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 **Milestone 5 complete.** Core pipeline and quality features are all implemented. Semantic enrichment (glossary, entity pages, LLM) is deferred to a future M6 milestone. The pipeline processes full rulebook PDFs through TOC extraction, section tree construction, text extraction (Marker or PyMuPDF), repair/normalization, and Markdown emission. Tables are preserved via Marker's native Markdown pipe-table output (37 sections with tables in CoD build). Multiple PDFs can be ingested into a shared wiki with proper namespacing. Internal links use standard Markdown relative links (`[Title](../path/to/section.md)`) for broad compatibility. Dingbats font characters (e.g., FantasyRPGDings `Y` → `•`) are remapped via per-PDF font manifest. TTRPG dot ratings (`•`, `••`, `•••`) are preserved. Marker sub-heading absorption ensures tables under unTOC'd headings are captured. Marker page-anchor spans and page-links are stripped. Mid-page section extraction uses font-size-based heading detection. Build-time validation (`validate` command) checks for broken links, missing images, orphan files. `--dry-run`, `--sections`, and `--page-range` CLI filters enable selective processing. No-TOC PDFs are supported via font-size heading synthesis. Image alt text is populated from section titles for accessibility. HTML `<br>` in Marker tables is converted to ` / ` for broad Markdown compatibility. Joined game-term + page-ref patterns (`Parkourp. 48` → `Parkour p. 48`) are detected and annotated.
 
-**Tested on two large rulebooks:**
+**Tested on three large rulebooks:**
 - **Storypath Ultra Core Manual** (257 pages, 450 sections, 9 tables)
 - **Chronicles of Darkness** (301 pages, 521 sections, 37 table sections, 1.63M chars)
+- **Shadowrun 5E Core Rulebook** (502 pages, 544 sections, 3-level deep TOC, 2.66M chars)
 
 **151 tests passing.**
 
@@ -99,6 +100,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] No-TOC PDF fallback (font-size heading detection)
 - [x] `--dry-run` mode
 - [x] `--sections` and `--page-range` filters
+- [x] Running header stripping (`>> CHAPTER <<` pattern for Shadowrun/Catalyst PDFs)
 - [ ] Alias/glossary extraction, entity pages, LLM enrichment (deferred to M6)
 
 ---
@@ -158,6 +160,8 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] `validate` CLI command: check broken links, missing images, orphan files, unresolved page refs
 - [x] No-TOC PDF fallback: font-size heading detection synthesizes TOC from PDF content
 - [x] Image alt text populated from section title for accessibility
+- [x] Running header stripping (`>> CHAPTER <<` pattern removal for Shadowrun/Catalyst PDFs)
+- [x] Shadowrun 5E Core Rulebook added to test corpus (502 pages, 544 sections, 3-level TOC)
 
 ### Next
 
@@ -230,7 +234,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ## Change Log
 
-### 2025-04-18 — Roadmap items: validation, filters, repair fixes, no-TOC fallback
+### 2025-04-18 — Roadmap items: validation, filters, repair fixes, no-TOC fallback, Shadowrun
 
 - `validate` CLI command: post-build validation checking broken Markdown links,
   missing image references, orphan .md files, and unresolved `{{page-ref:N}}` annotations.
@@ -254,7 +258,12 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - Image alt text populated from section title: `_rewrite_asset_paths()`
   fills empty alt text `![](.assets/...)` with the section heading.
   Existing non-empty alt text is preserved.
-- 151 tests passing (21 new: 7 normalize, 4 emit-filter, 1 dry-run, 6 validate, 3 alt-text)
+- 155 tests passing (4 new: running header stripping)
+- Shadowrun 5E Core Rulebook added to test corpus: 502 pages, 544 sections,
+  3-level deep TOC, 2.66M chars, clean validation (0 broken links/images/refs)
+- Notable SR observations: ¥/nuyen symbols preserved, SR slang (chummer,
+  drek, frag) preserved, no dingbat manifest (no dingbat fonts),
+  12 short sections (maps, lifestyle stubs, back matter)
 
 ### 2025-04-17 — Marker sub-heading absorption, CoD validation, extraction improvements
 

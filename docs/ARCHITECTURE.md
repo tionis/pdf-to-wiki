@@ -41,6 +41,7 @@ The `repair` command re-emits Markdown with the following transformations applie
 7. **Marker artifact cleanup** — Strip `<span id="page-N-M">` page anchors and `[\(p.21\)](#page-21-0)` page-links
 8. **<br> in tables** — Convert `<br>` in pipe tables to ` / ` for broad Markdown compatibility
 9. **Joined page refs** — Separate joined game-term + page-ref patterns (e.g., `Parkourp. 48` → `Parkour p. 48`) before annotation
+10. **Running header stripping** — Remove `>> CHAPTER NAME <<` patterns (Shadowrun/Catalyst Game Labs PDFs) from extracted text
 
 ### Validation Pipeline (post-build)
 
