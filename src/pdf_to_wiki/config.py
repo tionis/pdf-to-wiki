@@ -25,6 +25,7 @@ class WikiConfig:
     llm_default_model: str = "glm-5.1:cloud"
     llm_temperature: float = 0.0
     extract_engine: str = "marker"
+    extract_tables: bool = True  # Enable PyMuPDF table detection for pymupdf engine
     obsidian_emit_frontmatter: bool = True
     obsidian_emit_index_notes: bool = True
     dry_run: bool = False

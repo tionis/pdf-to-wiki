@@ -4,7 +4,7 @@
 
 **PDF-to-Wiki** converts pen-and-paper rulebook PDFs into structured Markdown wikis with full traceability from generated Markdown back to source PDF pages. The pipeline extracts TOC/outline, page labels, and section metadata from PDFs, builds a canonical section tree, extracts text content per section (Marker ML or PyMuPDF deterministic), runs repair/normalization, and emits Markdown files with YAML frontmatter.
 
-**Current milestone (M5 ✅):** Cross-book linking and quality features complete. Core pipeline is feature-complete for three large rulebooks (Storypath 257pg/450 sections, CoD 301pg/521 sections, Shadowrun 5E 502pg/544 sections). Glossary extraction, Docling engine, and auto-validate added. Semantic enrichment (entity pages, LLM) deferred to M6.
+**Current milestone (M5 ✅):** Core pipeline and quality features complete, including glossary extraction, entity page generation, and PyMuPDF table wiring. Full feature set for three large rulebooks. Semantic enrichment (entity link injection, LLM) deferred to M6.
 
 ---
 
@@ -47,7 +47,7 @@ These are **non-negotiable** unless explicitly reconsidered:
   - `AGENTS.md` (if agent-facing conventions change)
 - **Run the test suite** before declaring work done: `uv run pytest tests/ -v`
 - **Tests must use `engine="pymupdf"`** — Marker requires ML models and takes minutes per test.
-- **191 tests passing** — run `uv run pytest tests/ -q` to verify.
+- **219 tests passing** — run `uv run pytest tests/ -q` to verify.
 
 ---
 
@@ -75,13 +75,14 @@ These are **non-negotiable** unless explicitly reconsidered:
 | `src/pdf_to_wiki/repair/normalize.py` | OCR word-break repair, bullet normalization (TTRPG dot ratings), whitespace normalization, page-ref annotation with `Wordp.N` fix, `<br>`-in-table conversion, running header stripping (`>> CHAPTER <<`) |
 | `src/pdf_to_wiki/repair/extract_glossary.py` | Glossary extraction (`**Term —**` lexicon entries, **Term**: inline defs, **Field:** structured fields), glossary.md emission |
 | `src/pdf_to_wiki/repair/rewrite_refs.py` | Page-ref annotation (`p. 43` → `{{page-ref:43}}`), rewriting to Markdown relative links, cross-book resolution |
+| `src/pdf_to_wiki/emit/entity_pages.py` | Entity page generation from glossary: cross-reference stubs under `entities/`, `find_entity_references()`, see-also links |
 | `src/pdf_to_wiki/emit/markdown_writer.py` | Markdown emission with YAML frontmatter, `_rewrite_asset_paths()` (alt text population), `_filter_sections()`, stale file cleanup |
 | `src/pdf_to_wiki/emit/obsidian_paths.py` | Deterministic path generation (slug → directory/file structure) |
 | `src/pdf_to_wiki/emit/validate.py` | Post-build validation: broken links, missing images, orphan files, unresolved page refs |
 | `src/pdf_to_wiki/cache/` | SQLite cache, artifact store, step manifests |
 | `src/pdf_to_wiki/llm/` | (Stub) Future: Ollama-backed enrichment |
 | `data/` | Runtime data (cache, artifacts, outputs) — gitignored |
-| `tests/` | Test suite (130 tests) |
+| `tests/` | Test suite (219 tests) |
 
 ---
 

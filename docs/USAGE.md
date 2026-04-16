@@ -191,6 +191,44 @@ Returns exit code 1 if any issues are found. The command reports:
 - Orphan `.md` files not in the emit manifest
 - Unresolved `{{page-ref:N}}` annotations left in the text
 
+Validation automatically runs at the end of `build` unless `--no-validate` is specified.
+
+### `pdf-to-wiki glossary`
+
+Extract glossary entries from the text content — game terms and their definitions from lexicon sections and inline bold patterns.
+
+```bash
+# Extract and cache glossary entries
+pdf-to-wiki glossary my-rulebook
+
+# Also emit glossary.md alongside wiki output
+pdf-to-wiki glossary my-rulebook --emit
+
+# Force re-extraction
+pdf-to-wiki glossary my-rulebook --force
+```
+
+The glossary step is also integrated into `build` with the `--glossary` flag (auto-enabled for Marker/Docling engines):
+
+```bash
+pdf-to-wiki build my-rulebook --glossary
+```
+
+### `pdf-to-wiki entities`
+
+Generate entity cross-reference stub pages from glossary entries. Each entity page links back to its source definition section.
+
+```bash
+pdf-to-wiki entities my-rulebook
+
+# Force regeneration
+pdf-to-wiki entities my-rulebook --force
+```
+
+Requires `pdf-to-wiki glossary` to have been run first. Generates:
+- `books/<source_id>/entities/<slug>.md` — Individual entity stub pages
+- `books/<source_id>/entities/index.md` — Alphabetical entity index with letter navigation
+
 ## Global Options
 
 - `--config <path>` — Path to a configuration TOML file

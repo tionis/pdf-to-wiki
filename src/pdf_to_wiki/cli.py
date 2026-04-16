@@ -297,6 +297,38 @@ def glossary(ctx: click.Context, source_id: str, force: bool, emit: bool) -> Non
         click.echo(f"\nEmitted glossary: {result_path}")
 
 
+@main.command(name="entities")
+@click.argument("source_id")
+@click.option("--force", is_flag=True, help="Force regeneration of entity pages")
+@click.pass_context
+def entities(ctx: click.Context, source_id: str, force: bool) -> None:
+    """Generate entity stub pages from glossary entries.
+
+    Creates cross-reference stub pages under books/<source_id>/entities/
+    for each glossary term, linking back to the source definition section(s).
+    Also generates an entities/index.md with alphabetical navigation.
+
+    Requires glossary extraction to have been run first ('pdf-to-wiki glossary').
+    """
+    from pdf_to_wiki.emit.entity_pages import generate_entity_pages
+
+    cfg = ctx.obj["config"]
+
+    # Check that glossary data exists
+    from pdf_to_wiki.cache.artifact_store import ArtifactStore
+    artifacts = ArtifactStore(cfg.resolved_artifact_dir())
+    glossary_data = artifacts.load_json(source_id, "glossary")
+    if not glossary_data:
+        click.echo(f"No glossary data for {source_id}. Run 'pdf-to-wiki glossary' first.", err=True)
+        raise SystemExit(1)
+
+    manifest = generate_entity_pages(source_id, cfg, force=force)
+    click.echo(f"Generated {len(manifest)} entity pages for {source_id}")
+    click.echo()
+    for term, path in sorted(manifest.items()):
+        click.echo(f"  {term} → {path}")
+
+
 @main.command(name="validate")
 @click.argument("source_id", required=False)
 @click.option("--all", "validate_all_flag", is_flag=True, help="Validate all registered PDFs")
@@ -331,8 +363,9 @@ def validate(ctx: click.Context, source_id: str | None, validate_all_flag: bool)
 @click.option("--sections", default=None, help="Comma-separated section IDs or slugs to process")
 @click.option("--page-range", default=None, help="Only process sections within page range (e.g., '10-50')")
 @click.option("--no-validate", is_flag=True, help="Skip post-build validation")
+@click.option("--glossary", is_flag=True, help="Extract glossary and emit glossary.md (auto-enabled for Marker/Docling engines)")
 @click.pass_context
-def build(ctx: click.Context, source_id: str, force: bool, force_step: str | None, skip_extract: bool, engine: str | None, sections: str | None, page_range: str | None, no_validate: bool) -> None:
+def build(ctx: click.Context, source_id: str, force: bool, force_step: str | None, skip_extract: bool, engine: str | None, sections: str | None, page_range: str | None, no_validate: bool, glossary: bool) -> None:
     """Run the full pipeline for a registered PDF source."""
     from pdf_to_wiki.ingest.extract_toc import extract_toc
     from pdf_to_wiki.ingest.extract_page_labels import extract_page_labels as extract_pl
@@ -345,6 +378,16 @@ def build(ctx: click.Context, source_id: str, force: bool, force_step: str | Non
     step_force = force or (force_step is not None)
     section_filter = [s.strip() for s in sections.split(",")] if sections else None
     page_filter = _parse_page_range(page_range) if page_range else None
+    engine_used = engine or cfg.extract_engine
+
+    # Glossary extraction works best with engines that preserve bold/italic
+    # (Marker and Docling). Auto-enable for those engines if not explicitly set.
+    if glossary or (engine_used in ("marker", "docling") and not ctx.params.get("no_validate")):
+        # Auto-enable glossary for Marker/Docling unless --glossary was explicitly False
+        # --glossary flag explicitly requested it
+        run_glossary = True
+    else:
+        run_glossary = glossary  # Only if explicitly requested
 
     # Verify the PDF is registered
     db = CacheDB(cfg.resolved_cache_db_path())
@@ -358,30 +401,67 @@ def build(ctx: click.Context, source_id: str, force: bool, force_step: str | Non
     click.echo(f"Source: {source.path} ({source.page_count} pages)")
     click.echo()
 
-    click.echo("Step 1/6: Extracting TOC...")
+    click.echo("Step 1/7: Extracting TOC...")
     extract_toc(source_id, cfg, force=step_force)
 
-    click.echo("Step 2/6: Extracting page labels...")
+    click.echo("Step 2/7: Extracting page labels...")
     extract_pl(source_id, cfg, force=step_force)
 
-    click.echo("Step 3/6: Building section tree...")
+    click.echo("Step 3/7: Building section tree...")
     build_section_tree(source_id, cfg, force=step_force)
 
     if not skip_extract:
-        click.echo(f"Step 4/6: Extracting text content (engine: {engine or cfg.extract_engine})...")
+        click.echo(f"Step 4/7: Extracting text content (engine: {engine_used})...")
         extract_text(source_id, cfg, force=step_force, engine=engine)
     else:
-        click.echo("Step 4/6: Skipping text extraction (--skip-extract)")
+        click.echo("Step 4/7: Skipping text extraction (--skip-extract)")
 
-    click.echo("Step 5/6: Emitting Markdown notes...")
+    click.echo("Step 5/7: Emitting Markdown notes...")
     manifest = emit_skeleton(source_id, cfg, force=force, force_step=force_step, section_filter=section_filter, page_filter=page_filter)
 
-    click.echo("Step 6/6: Done!")
+    # Step 6: Glossary extraction (if enabled)
+    if run_glossary and not skip_extract:
+        from pdf_to_wiki.cache.artifact_store import ArtifactStore
+        from pdf_to_wiki.cache.manifests import StepManifestStore
+        from pdf_to_wiki.repair.extract_glossary import extract_glossary as extract_gloss, emit_glossary_md
+        from pdf_to_wiki.models import SectionTree
+
+        click.echo("Step 6/7: Extracting glossary...")
+        artifacts = ArtifactStore(cfg.resolved_artifact_dir())
+
+        # Load text and tree for glossary extraction
+        text_data = artifacts.load_json(source_id, "extract_text")
+        tree_data = artifacts.load_json(source_id, "section_tree")
+
+        if text_data and tree_data:
+            tree = SectionTree(**tree_data)
+            entries = extract_gloss(text_data, tree, cfg)
+
+            # Save artifact
+            glossary_data = [e.to_dict() for e in entries]
+            artifacts.save_json(source_id, "glossary", glossary_data)
+
+            # Track in manifest
+            manifests = StepManifestStore(CacheDB(cfg.resolved_cache_db_path()))
+            manifests.mark_completed(source_id, "glossary", artifact_path=f"{source_id}/glossary.json")
+
+            # Emit glossary.md
+            result_path = emit_glossary_md(source_id, cfg)
+            click.echo(f"  Extracted {len(entries)} glossary entries → {result_path}")
+        else:
+            click.echo("  Skipped: no extracted text or section tree available")
+    else:
+        if skip_extract:
+            click.echo("Step 6/7: Skipping glossary (--skip-extract)")
+        else:
+            click.echo("Step 6/7: Skipping glossary (use --glossary to enable)")
+
+    click.echo("Step 7/7: Done!")
     click.echo(f"\n=== Build complete: {len(manifest)} notes emitted ===")
 
     # Auto-validate unless disabled
     if not no_validate:
-        click.echo() 
+        click.echo()
         click.echo("Validating build...")
         from pdf_to_wiki.emit.validate import validate_wiki
         report = validate_wiki(source_id, cfg)

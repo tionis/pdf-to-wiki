@@ -89,6 +89,7 @@ Engines are registered via `@register_engine("name")` decorator and instantiated
 - `extract_section_text_structured(start_heading=...)`: Extracts only from heading onward on first page, preserving full multi-page content
 - Dingbat manifest: `extract_dingbat_manifest()` builds per-PDF font replacement map
 - Performance: ~0.1s/page (no ML models)
+- Table detection: `config.extract_tables = true` (default) — detects tables via `find_tables()` and appends Markdown pipe-tables to page text. In-place replacement is a future enhancement.
 
 ### Engine Selection
 
@@ -96,6 +97,14 @@ Engines are registered via `@register_engine("name")` decorator and instantiated
 - CLI: `--engine marker`, `--engine pymupdf`, or `--engine docling`
 - Unknown engines fall back to pymupdf with a warning
 - Docling requires `pip install pdf-to-wiki[docling]`; not registered if not installed
+
+### Glossary and Entity Pipeline
+
+- Glossary extraction (`repair/extract_glossary.py`): regex-based extraction of **Term —** definitions from lexicon sections, **Term**: inline definitions, **Field:** structured fields
+- Glossary emission: `books/<source_id>/glossary.md` with alphabetical index and section links
+- Entity page generation (`emit/entity_pages.py`): cross-reference stub pages under `entities/` namespace with see-also links to related terms
+- Entity index: `entities/index.md` with alphabetical letter navigation
+- Glossary is auto-enabled for Marker/Docling engines (which preserve bold/italic); `--glossary` flag on `build` to force
 
 ### Marker Full-PDF Caching Strategy
 

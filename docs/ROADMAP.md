@@ -13,7 +13,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - **Chronicles of Darkness** (301 pages, 521 sections, 37 table sections, 1.63M chars)
 - **Shadowrun 5E Core Rulebook** (502 pages, 544 sections, 3-level deep TOC, 2.66M chars)
 
-**191 tests passing.**
+**219 tests passing.**
 
 ---
 
@@ -105,7 +105,9 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Structured field extraction (**Effect:**, **Prerequisites:**, etc.)
 - [x] Docling engine integration (`[docling]` optional dep, `@register_engine("docling")`)
 - [x] Auto-validate on build (run validation after build, `--no-validate` to skip)
-- [ ] Entity page generation (depends on glossary extraction for entity detection)
+- [x] Entity page generation (cross-reference stubs from glossary, `entities/` namespace + index)
+- [x] Glossary wired into `build` pipeline (`--glossary` flag, auto-enabled for Marker/Docling engines)
+- [x] PyMuPDF table extraction wiring (`config.extract_tables = true`, Tech debt #6 resolved)
 
 ---
 
@@ -174,24 +176,21 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ### Next
 
-- [ ] Entity page generation (auto-stubs for spells, conditions, skills)
-  - Many sections already exist for entities (e.g., `the-appendices/appendix-three-conditions/bonded.md`)
-  - Goal: generate cross-reference stub pages under a shared `entities/` namespace
-  - Each stub links back to the source section(s) where the entity appears
-  - Bold-term extraction from alias/glossary (above) is a prerequisite for finding entity mentions
-  - Key files: New `src/pdf_to_wiki/emit/entity_pages.py`, depends on glossary extraction
-
-- [ ] Wire glossary extraction into `build` pipeline
-  - Add `--glossary` flag to `build` command to extract glossary and emit glossary.md
-  - Or make it automatic for Marker builds (where bold/italic is preserved)
-
 - [ ] Design extraction artifact schema (structured, not just raw text)
   - Current `extract_text.json` maps `section_id → raw_text_string`
   - Structured schema would include: paragraphs, tables (as structured data, not pipe-text), image refs, bold/italic spans, page anchors
   - This enables richer downstream processing (glossary extraction, entity detection)
   - Key files: `src/pdf_to_wiki/models.py`, `src/pdf_to_wiki/ingest/extract_text.py`
 
-### Deferred / Later
+- [ ] Entity page reference injection
+  - After entity pages are generated, inject `[Term](entities/term.md)` links into section text
+  - Only for terms not already in bold/headings/links
+  - Makes the wiki more browsable: click any game term to see its definition
+
+- [ ] Integrated table replacement in PyMuPDF engine
+  - Current table detection appends tables at end of page text as a stopgap
+  - Should replace flattened text regions in-place using block bounding boxes
+  - Requires refactoring `extract_page_text_structured()` to track block positions
 
 - [ ] OCR fallback via OCRmyPDF
 - [ ] Font/encoding diagnostics beyond known dingbats fonts
@@ -202,6 +201,12 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [ ] Obsidian search index generation
 - [ ] LLM-assisted structural disambiguation and enrichment (cached, optional)
 
+### Deferred / Later
+
+(Moved items above to Next — these are lower priority)
+
+- [ ] Full Marker build on Shadowrun 5E (strong case: table-heavy content)
+
 ---
 
 ## Open Questions
@@ -209,7 +214,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 1. **Marker vs Docling vs Marker**: Resolved — both are now supported as pluggable engines. Docling is ~5-10x faster but has different output tradeoffs.
 2. **Page-label robustness**: Partially resolved — no-TOC PDFs now fall back to font-size heading synthesis. Remaining gap: PDFs with no `/PageLabels` dict AND no detectable font-size headings. Should we attempt to detect Roman-numeral front matter heuristically?
 3. **LLM cache eviction policy**: When should cached LLM responses be invalidated? Current design only invalidates on config hash change.
-4. **Entity extraction approach**: Should we detect game terms via bold/italic patterns, or use an LLM to identify entities? Bold/italic is fast and deterministic; LLM gives richer results but is slow and non-deterministic.
+4. **Entity extraction approach**: Resolved — using deterministic bold/italic pattern extraction via `extract_glossary.py`. Entity pages (`entity_pages.py`) generate cross-reference stubs. LLM enrichment of entity pages remains a future option.
 5. **PyMuPDF table extraction**: `page.find_tables()` can detect tables but produces split-column artifacts. Marker handles tables natively. Should we wire in PyMuPDF table extraction as fallback for when Marker isn't available?
 6. **Sub-heading depth limit**: Should sub-heading absorption stop at a certain heading level difference? Currently absorbs all consecutive unclaimed headings; might over-absorb in edge cases.
 
@@ -222,7 +227,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 3. ~~No dry-run mode~~: ✅ Added — `--dry-run` flag prevents file writes.
 4. ~~No `--sections` filter~~: ✅ Added — `--sections` and `--page-range` filters.
 5. ~~Old output cleanup~~: ✅ Fixed — `emit-skeleton --force` now removes stale files from previous runs.
-6. **table_extract.py not wired**: PyMuPDF table detection module exists but isn't integrated into the extraction pipeline; Marker handles tables natively.
+6. ~~table_extract.py not wired~~: ✅ Fixed — PyMuPDF engine now uses `find_tables()` when `config.extract_tables = true` (default). Tables appended as Markdown pipe-tables. In-place replacement still a future enhancement.
 7. **6 sections with <50 chars**: Mostly character entries in fiction chapters (God Machine Chronicle NPCs) where content is under sub-headings in the Marker output. Low priority since these are narrative, not rules content.
 8. **~30s/page Marker latency**: CoD build took 6.5h. Consider Docling or GPU acceleration for faster builds.
 9. ~~validate command doesn't run automatically~~: ✅ Fixed — `build` now runs validation automatically; `--no-validate` to skip.
@@ -230,6 +235,29 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 ---
 
 ## Change Log
+
+### 2025-04-18 — Entity pages, glossary in build, PyMuPDF tables
+
+- Entity page generation (`src/pdf_to_wiki/emit/entity_pages.py`):
+  - Generates cross-reference stub pages under `books/<source_id>/entities/` namespace
+  - Each stub has: term heading, definition excerpt, link to source section, "See also" links
+  - Entities index at `entities/index.md` with alphabetical letter navigation
+  - Type badges: 📖 lexicon, 📝 inline
+  - `entities` CLI command: `pdf-to-wiki entities SOURCE_ID [--force]`
+  - Entity slug generation with conflict resolution
+  - `find_entity_references()` for detecting term references in text (future: link injection)
+  - 28 new tests
+- Glossary wired into `build` pipeline:
+  - `--glossary` flag on `build` command
+  - Auto-enabled for Marker and Docling engines (which preserve bold/italic)
+  - Glossary step now step 6/7 in the build pipeline
+  - Validation recognizes glossary.md and entity pages as expected output
+- PyMuPDF table extraction wiring (Tech debt #6):
+  - `config.extract_tables = true` (default): PyMuPDF engine detects tables via `find_tables()`
+  - Detected tables converted to Markdown pipe-tables and appended to page text
+  - In-place table replacement with block-position tracking is a future enhancement
+  - Requires PyMuPDF 1.24+ for `find_tables()` API
+- 219 tests passing (28 new entity page tests)
 
 ### 2025-04-18 — Glossary extraction, Docling engine, auto-validate
 
