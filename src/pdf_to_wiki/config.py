@@ -26,6 +26,7 @@ class WikiConfig:
     llm_temperature: float = 0.0
     extract_engine: str = "marker"
     extract_tables: bool = True  # Enable PyMuPDF table detection for pymupdf engine
+    inject_entity_links: bool = True  # Inject [Term](entities/term.md) links into section text
     obsidian_emit_frontmatter: bool = True
     obsidian_emit_index_notes: bool = True
     dry_run: bool = False

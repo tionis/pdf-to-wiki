@@ -13,7 +13,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - **Chronicles of Darkness** (301 pages, 521 sections, 37 table sections, 1.63M chars)
 - **Shadowrun 5E Core Rulebook** (502 pages, 544 sections, 3-level deep TOC, 2.66M chars)
 
-**219 tests passing.**
+**231 tests passing.**
 
 ---
 
@@ -108,6 +108,8 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Entity page generation (cross-reference stubs from glossary, `entities/` namespace + index)
 - [x] Glossary wired into `build` pipeline (`--glossary` flag, auto-enabled for Marker/Docling engines)
 - [x] PyMuPDF table extraction wiring (`config.extract_tables = true`, Tech debt #6 resolved)
+- [x] Entity link injection (`inject_entity_links`, config: `inject_entity_links = true`)
+- [x] 231 tests passing (40 entity page tests, 12 injection tests)
 
 ---
 
@@ -182,10 +184,12 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
   - This enables richer downstream processing (glossary extraction, entity detection)
   - Key files: `src/pdf_to_wiki/models.py`, `src/pdf_to_wiki/ingest/extract_text.py`
 
-- [ ] Entity page reference injection
+- [x] Entity page reference injection
   - After entity pages are generated, inject `[Term](entities/term.md)` links into section text
   - Only for terms not already in bold/headings/links
   - Makes the wiki more browsable: click any game term to see its definition
+  - Config: `inject_entity_links = true` (default)
+  - Two-pass algorithm: collect matches → replace end-to-start
 
 - [ ] Integrated table replacement in PyMuPDF engine
   - Current table detection appends tables at end of page text as a stopgap
@@ -235,6 +239,19 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 ---
 
 ## Change Log
+
+### 2025-04-18 — Entity link injection, 231 tests
+
+- Entity link injection (`inject_entity_links()` in `entity_pages.py`):
+  - Scans section text for glossary term occurrences
+  - Replaces plain text with `[Term](entities/term.md)` links
+  - Two-pass algorithm: collect candidates → replace from end-to-start
+  - Smart avoidance: skips headings, bold definitions, existing links, overlapping terms
+  - Longest-match-first priority (\"dice pool\" linked before \"dice\")
+  - Max 20 links per section (configurable)
+  - Config: `inject_entity_links = true` (default)
+  - Integrated into Markdown emission pipeline
+- 12 new injection tests (231 total)
 
 ### 2025-04-18 — Entity pages, glossary in build, PyMuPDF tables
 

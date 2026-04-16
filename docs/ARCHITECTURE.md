@@ -105,6 +105,7 @@ Engines are registered via `@register_engine("name")` decorator and instantiated
 - Entity page generation (`emit/entity_pages.py`): cross-reference stub pages under `entities/` namespace with see-also links to related terms
 - Entity index: `entities/index.md` with alphabetical letter navigation
 - Glossary is auto-enabled for Marker/Docling engines (which preserve bold/italic); `--glossary` flag on `build` to force
+- Entity link injection: `config.inject_entity_links = true` (default) — after glossary is loaded, section text is scanned for term references and plain occurrences replaced with `[Term](../entities/term.md)` links. Two-pass algorithm avoids position shifting. Skips headings, bold terms, existing links.
 
 ### Marker Full-PDF Caching Strategy
 

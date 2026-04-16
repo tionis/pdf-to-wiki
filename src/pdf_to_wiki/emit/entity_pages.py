@@ -369,3 +369,146 @@ def find_entity_references(
                 results.append((pos, actual_text, canonical))
 
     return results
+
+
+def inject_entity_links(
+    text: str,
+    entity_terms: dict[str, str],
+    note_path: str,
+    books_dir: str,
+    source_id: str,
+    max_links_per_section: int = 20,
+) -> str:
+    """Inject entity links into section text, replacing plain term references
+    with Markdown links to entity stub pages.
+
+    For example, if "Dice Pool" is a glossary term, occurrences in the body
+    text are replaced with `[Dice Pool](../entities/dice-pool.md)`.
+
+    Uses a two-pass approach: collect all candidate matches first, then
+    apply replacements from end-to-start to avoid position shifting.
+
+    Smart avoidance:
+    - Terms in headings are never linked
+    - Terms already in bold are not re-linked (they're likely definitions)
+    - Terms already in a Markdown link are not re-linked
+    - Shorter terms that overlap with longer already-matched terms are skipped
+    - At most `max_links_per_section` links are injected per section
+
+    Args:
+        text: The Markdown text to process.
+        entity_terms: Dict of lowercase_term → canonical_term_name.
+        note_path: The note's relative path.
+        books_dir: The books directory name (usually "books").
+        source_id: The PDF source ID.
+        max_links_per_section: Maximum number of entity links to inject.
+
+    Returns:
+        The text with entity links injected.
+    """
+    if not entity_terms or not text.strip():
+        return text
+
+    from pathlib import PurePosixPath
+
+    # Compute the relative path from this note to the entities/ directory
+    note = PurePosixPath(note_path)
+    books_prefix = PurePosixPath(books_dir)
+    try:
+        relative = note.relative_to(books_prefix)
+        parts = relative.parts
+        if len(parts) >= 2:
+            depth = len(parts) - 2
+        else:
+            depth = 0
+    except ValueError:
+        depth = len(note.parent.parts)
+
+    # Build the prefix to go from the note to entities/ within the source_id dir
+    if depth == 0:
+        entities_prefix = "entities/"
+    else:
+        entities_prefix = "../" * depth + "entities/"
+
+    # Sort terms by length descending to prioritize longer matches first
+    # (e.g., "dice pool" before "dice" if both are terms)
+    sorted_terms = sorted(
+        entity_terms.items(), key=lambda x: len(x[0]), reverse=True
+    )
+
+    # ── Pass 1: Collect all candidate matches ──────────────────
+    # Each match is (start, end, term_canonical, entity_rel)
+    # We track matched regions to avoid overlaps
+    matched_regions: list[tuple[int, int]] = []  # (start, end)
+    candidates: list[tuple[int, int, str, str]] = []
+
+    text_lower = text.lower()
+
+    for term_lower, canonical in sorted_terms:
+        if len(term_lower) <= 2:
+            continue
+        if len(candidates) >= max_links_per_section:
+            break
+
+        slug = entity_slug(canonical)
+        entity_rel = f"{entities_prefix}{slug}.md"
+
+        for m in re.finditer(r'\b' + re.escape(term_lower) + r'\b', text_lower):
+            pos = m.start()
+            end_pos = m.end()
+
+            # Check for overlap with already-matched regions
+            overlaps = False
+            for rstart, rend in matched_regions:
+                if pos < rend and end_pos > rstart:
+                    overlaps = True
+                    break
+            if overlaps:
+                continue
+
+            # Check that this isn't inside a Markdown link or heading
+            line_start = text.rfind('\n', 0, pos) + 1
+            line_prefix = text[line_start:pos]
+
+            # Skip if already inside a link [...](...)
+            if '[' in line_prefix and ']' not in line_prefix:
+                continue
+            # Skip if this is a heading line
+            if line_prefix.strip().startswith('#'):
+                continue
+            # Skip if already bold-wrapped
+            before = text[max(0, pos-2):pos]
+            after = text[end_pos:end_pos+2]
+            if before.endswith('**') and after.startswith('**'):
+                continue
+            # Skip if preceded by '(' — inside link target ](...
+            preceding = text[max(0, pos-50):pos]
+            if ']' in preceding and '(' in preceding[preceding.rfind(']'):]:
+                continue
+
+            # Verify the actual text matches
+            actual_text = text[pos:end_pos]
+            if actual_text.lower() != term_lower:
+                continue
+
+            # Valid candidate
+            matched_regions.append((pos, end_pos))
+            candidates.append((pos, end_pos, canonical, entity_rel))
+
+            if len(candidates) >= max_links_per_section:
+                break
+
+    if not candidates:
+        return text
+
+    # ── Pass 2: Apply replacements from end to start ────────────
+    # Processing in reverse order avoids position shifting
+    candidates.sort(key=lambda c: c[0], reverse=True)
+
+    for pos, end_pos, canonical, entity_rel in candidates:
+        actual_text = text[pos:end_pos]
+        replacement = f"[{actual_text}]({entity_rel})"
+        text = text[:pos] + replacement + text[end_pos:]
+
+    logger.debug(f"Injected {len(candidates)} entity links in {note_path}")
+    return text

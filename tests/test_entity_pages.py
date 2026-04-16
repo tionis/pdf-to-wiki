@@ -468,4 +468,137 @@ class TestEntityIntegration:
                 has_see_also = True
                 break
         # This is informational, not a hard requirement
+
+
+# ── Entity link injection tests ───────────────────────────────────────
+
+
+class TestInjectEntityLinks:
+    def test_basic_injection(self):
+        """Plain term references are linked to entity pages."""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        entity_terms = {"dice pool": "Dice Pool", "action": "Action"}
+        text = "Roll a dice pool for the action."
+        result = inject_entity_links(text, entity_terms, "books/book/chapter/section.md", "books", "book")
+
+        assert "[dice pool](" in result or "[Dice Pool](" in result
+        assert "[action](" in result or "[Action](" in result
+
+    def test_case_preservation(self):
+        """Original case is preserved in the link text."""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        entity_terms = {"dice pool": "Dice Pool"}
+        text = "Roll a Dice Pool for the check."
+        result = inject_entity_links(text, entity_terms, "books/book/chapter/section.md", "books", "book")
+
+        assert "[Dice Pool](" in result
+
+    def test_skip_headings(self):
+        """Terms in headings are not linked."""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        entity_terms = {"dice pool": "Dice Pool"}
+        text = "# Dice Pool\n\nRoll the dice pool."
+        result = inject_entity_links(text, entity_terms, "books/book/chapter/section.md", "books", "book")
+
+        # Only the body occurrence should be linked
+        assert result.count("[Dice Pool](") == 1 or result.count("[dice pool](") == 1
+
+    def test_skip_bold_definitions(self):
+        """Bold-wrapped terms are not linked (they're likely definitions)."""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        entity_terms = {"action": "Action"}
+        text = "**Action** — An activity a character undertakes."
+        result = inject_entity_links(text, entity_terms, "books/book/chapter/section.md", "books", "book")
+
+        # The bold term should NOT be linked
+        assert "[Action](" not in result
+
+    def test_skip_existing_links(self):
+        """Terms already in Markdown links are not re-linked."""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        entity_terms = {"action": "Action"}
+        text = "See [Action](combat.md) for details. Also an action occurs."
+        result = inject_entity_links(text, entity_terms, "books/book/chapter/section.md", "books", "book")
+
+        # Should only link the second occurrence
+        link_count = result.count("[action](") + result.count("[Action](")
+        assert link_count == 1  # Only the plain-text occurrence
+
+    def test_relative_path_depth(self):
+        """Links use correct relative path depth."""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        entity_terms = {"dice pool": "Dice Pool"}
+        # Deeply nested note needs more ../ prefixes
+        text = "Roll a dice pool."
+        result = inject_entity_links(text, entity_terms, "books/book/chapter/sub/section.md", "books", "book")
+
+        assert "../entities/dice-pool.md" in result
+
+    def test_root_level_note(self):
+        """Root-level notes use entities/ prefix without ../"""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        entity_terms = {"dice pool": "Dice Pool"}
+        text = "Roll a dice pool."
+        result = inject_entity_links(text, entity_terms, "books/book/section.md", "books", "book")
+
+        assert "entities/dice-pool.md" in result
+
+    def test_max_links_per_section(self):
+        """Respects max_links_per_section limit."""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        entity_terms = {f"term{i}": f"Term{i}" for i in range(10)}
+        text = " ".join(f"term{i}" for i in range(10))
+        result = inject_entity_links(text, entity_terms, "books/book/section.md", "books", "book", max_links_per_section=3)
+
+        # Count how many links were injected
+        link_count = result.count("](")
+        assert link_count <= 3
+
+    def test_no_overlap(self):
+        """Longer terms are matched first and shorter overlapping terms are skipped."""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        entity_terms = {"dice pool": "Dice Pool", "dice": "Dice"}
+        text = "Roll a dice pool for the check."
+        result = inject_entity_links(text, entity_terms, "books/book/section.md", "books", "book")
+
+        # "dice pool" (longer) should be linked, not "dice" separately
+        assert "[dice pool](" in result or "[Dice Pool](" in result
+        # "dice" should not be separately linked (it's part of "dice pool")
+        assert "[Dice](" not in result or "[dice](" not in result
+
+    def test_empty_text(self):
+        """Empty text returns empty string."""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        result = inject_entity_links("", {"action": "Action"}, "books/book/section.md", "books", "book")
+        assert result == ""
+
+    def test_no_entity_terms(self):
+        """No entity terms returns text unchanged."""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        text = "Some text without terms."
+        result = inject_entity_links(text, {}, "books/book/section.md", "books", "book")
+        assert result == text
+
+    def test_short_terms_skipped(self):
+        """Very short terms (≤2 chars) are skipped to avoid false positives."""
+        from pdf_to_wiki.emit.entity_pages import inject_entity_links
+
+        entity_terms = {"xp": "XP", "action": "Action"}
+        text = "Gain XP from an action."
+        result = inject_entity_links(text, entity_terms, "books/book/section.md", "books", "book")
+
+        # "XP" is only 2 chars, should not be linked
+        assert "[XP](" not in result
+        assert "[action](" in result or "[Action](" in result
         # (our test data may or may not trigger it)

@@ -112,6 +112,13 @@ def emit_skeleton(
     # Load dingbat manifest for repair pipeline (if available)
     dingbat_manifest = artifacts.load_json(source_id, "dingbat_manifest")
 
+    # Load glossary data for entity link injection (if available)
+    glossary_data = artifacts.load_json(source_id, "glossary")
+    entity_terms: dict[str, str] = {}
+    if glossary_data and config.inject_entity_links:
+        entity_terms = {e["term"].lower(): e["term"] for e in glossary_data if e.get("term")}
+        logger.info(f"Loaded {len(entity_terms)} entity terms for link injection")
+
     # Generate Markdown files
     output_dir = config.resolved_output_dir()
     emit_manifest: dict[str, str] = {}
@@ -130,6 +137,10 @@ def emit_skeleton(
         # Rewrite wiki-root-relative image refs to note-relative paths
         if section_text and "assets/" in section_text:
             section_text = _rewrite_asset_paths(section_text, rel_path, config.books_dir, source_id=tree.source_id, section_title=node.title)
+        # Inject entity links if glossary is available and feature is enabled
+        if entity_terms and section_text and section_text.strip():
+            from pdf_to_wiki.emit.entity_pages import inject_entity_links
+            section_text = inject_entity_links(section_text, entity_terms, rel_path, config.books_dir, tree.source_id)
         content = _render_note(node, tree, source.path, source.sha256, section_text)
         abs_path.write_text(content, encoding="utf-8")
 

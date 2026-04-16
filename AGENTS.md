@@ -47,7 +47,7 @@ These are **non-negotiable** unless explicitly reconsidered:
   - `AGENTS.md` (if agent-facing conventions change)
 - **Run the test suite** before declaring work done: `uv run pytest tests/ -v`
 - **Tests must use `engine="pymupdf"`** — Marker requires ML models and takes minutes per test.
-- **219 tests passing** — run `uv run pytest tests/ -q` to verify.
+- **231 tests passing** — run `uv run pytest tests/ -q` to verify.
 
 ---
 
@@ -75,7 +75,7 @@ These are **non-negotiable** unless explicitly reconsidered:
 | `src/pdf_to_wiki/repair/normalize.py` | OCR word-break repair, bullet normalization (TTRPG dot ratings), whitespace normalization, page-ref annotation with `Wordp.N` fix, `<br>`-in-table conversion, running header stripping (`>> CHAPTER <<`) |
 | `src/pdf_to_wiki/repair/extract_glossary.py` | Glossary extraction (`**Term —**` lexicon entries, **Term**: inline defs, **Field:** structured fields), glossary.md emission |
 | `src/pdf_to_wiki/repair/rewrite_refs.py` | Page-ref annotation (`p. 43` → `{{page-ref:43}}`), rewriting to Markdown relative links, cross-book resolution |
-| `src/pdf_to_wiki/emit/entity_pages.py` | Entity page generation from glossary: cross-reference stubs under `entities/`, `find_entity_references()`, see-also links |
+| `src/pdf_to_wiki/emit/entity_pages.py` | Entity page generation from glossary: cross-reference stubs under `entities/`, `find_entity_references()`, `inject_entity_links()`, see-also links |
 | `src/pdf_to_wiki/emit/markdown_writer.py` | Markdown emission with YAML frontmatter, `_rewrite_asset_paths()` (alt text population), `_filter_sections()`, stale file cleanup |
 | `src/pdf_to_wiki/emit/obsidian_paths.py` | Deterministic path generation (slug → directory/file structure) |
 | `src/pdf_to_wiki/emit/validate.py` | Post-build validation: broken links, missing images, orphan files, unresolved page refs |
