@@ -706,8 +706,29 @@ def import_blobforge_cmd(ctx: click.Context, pdf_path: str, zip_path: str | None
                 click.echo("⚠ Build has issues. Run 'pdf-to-wiki validate' for details.", err=True)
 
 
-if __name__ == "__main__":
-    main()
+
+@main.command("migrate-cache")
+@click.option("--old-cache-dir", default="./data", help="Root of the old cache directory (default: ./data)")
+@click.option("--dry-run", is_flag=True, default=False, help="Report what would be done without copying files")
+@click.pass_context
+def migrate_cache_cmd(ctx: click.Context, old_cache_dir: str, dry_run: bool) -> None:
+    """Migrate old source_id-keyed artifacts to hash-addressed layout.
+
+    Moves artifacts from data/artifacts/{source_id}/ to
+    {cache_dir}/artifacts/{sha256[:2]}/{sha256}/ and copies the
+    SQLite DB to the global cache directory.
+    """
+    from pdf_to_wiki.cache.migrate import migrate_cache
+
+    cfg = ctx.obj["config"]
+    stats = migrate_cache(cfg, old_cache_dir=old_cache_dir, dry_run=dry_run)
+
+    if dry_run:
+        click.echo("(dry-run — no files were moved)")
+
+    click.echo(f"Migration complete: {stats['dirs_moved']} directories, "
+               f"{stats['files_moved']} files, {stats['db_moved']} DB copy, "
+               f"{stats['skipped']} skipped, {stats['errors']} errors")
 
 
 def _parse_page_range(pr: str) -> tuple[int, int]:
@@ -728,3 +749,7 @@ def _resolve_content_key(source_id: str, config: WikiConfig) -> str:
     sha256 = db.get_sha256(source_id)
     db.close()
     return sha256 or source_id  # fallback to source_id if not registered
+
+
+if __name__ == "__main__":
+    main()
