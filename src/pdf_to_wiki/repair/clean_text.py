@@ -218,6 +218,93 @@ def extract_page_text_structured(page: fitz.Page, skip_before: int | tuple[int, 
     return page_text
 
 
+def extract_page_text_with_blocks(
+    page: fitz.Page, skip_before: int | tuple[int, int] = 0
+) -> tuple[str, list[dict]]:
+    """Extract text from a page and return both the text and the ordered blocks.
+
+    Same as extract_page_text_structured() but also returns the ordered
+    block list with bounding box data. This is used by the PyMuPDF engine
+    for in-place table replacement.
+
+    Returns:
+        Tuple of (page_text, ordered_blocks) where each block has
+        x0, y0, x1, y1, text fields.
+    """
+    data = page.get_text("dict")
+
+    text_blocks = []
+    for block in data.get("blocks", []):
+        if "lines" not in block:
+            continue
+
+        bbox = block["bbox"]
+        x0, y0, x1, y1 = bbox
+        block_text = _extract_block_text(block)
+
+        if block_text.strip():
+            text_blocks.append({
+                "x0": x0,
+                "y0": y0,
+                "x1": x1,
+                "y1": y1,
+                "text": block_text,
+                "block": block,
+            })
+
+    if not text_blocks:
+        return "", []
+
+    page_width = page.rect.width
+
+    left_blocks = [b for b in text_blocks if b["x0"] < page_width * 0.45]
+    right_blocks = [b for b in text_blocks if b["x0"] >= page_width * 0.45]
+
+    if left_blocks and right_blocks and len(right_blocks) >= 3:
+        left_blocks.sort(key=lambda b: (b["y0"], b["x0"]))
+        right_blocks.sort(key=lambda b: (b["y0"], b["x0"]))
+        ordered_blocks = left_blocks + right_blocks
+    else:
+        ordered_blocks = sorted(text_blocks, key=lambda b: (b["y0"], b["x0"]))
+
+    # Apply skip_before if specified
+    if isinstance(skip_before, int) and skip_before > 0:
+        ordered_blocks = ordered_blocks[skip_before:]
+    elif isinstance(skip_before, tuple):
+        blk_skip, ln_skip = skip_before
+        remaining_blocks = []
+        for i, b in enumerate(ordered_blocks):
+            if i < blk_skip:
+                continue
+            elif i == blk_skip:
+                # For the heading block, extract only from line ln_skip onwards
+                block_data = b.get("block", b)
+                if "lines" in block_data:
+                    lines_text = []
+                    for j, line in enumerate(block_data["lines"]):
+                        if j < ln_skip:
+                            continue
+                        spans_text = []
+                        for span in line["spans"]:
+                            text = span["text"]
+                            font = span.get("font", "")
+                            if font in DINGBATS_FONT_MAP:
+                                mapping = DINGBATS_FONT_MAP[font]
+                                text = "".join(mapping.get(ch, ch) for ch in text)
+                            spans_text.append(text)
+                        line_text = " ".join(spans_text).strip()
+                        if line_text:
+                            lines_text.append(line_text)
+                    if lines_text:
+                        remaining_blocks.append({**b, "text": "\n".join(lines_text)})
+            else:
+                remaining_blocks.append(b)
+        ordered_blocks = remaining_blocks
+
+    page_text = "\n\n".join(b["text"] for b in ordered_blocks)
+    return page_text, ordered_blocks
+
+
 def extract_page_text_simple(page: fitz.Page) -> str:
     """Simple fallback extraction using PyMuPDF's text mode."""
     return page.get_text("text")

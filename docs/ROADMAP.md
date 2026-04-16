@@ -191,10 +191,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
   - Config: `inject_entity_links = true` (default)
   - Two-pass algorithm: collect matches → replace end-to-start
 
-- [ ] Integrated table replacement in PyMuPDF engine
-  - Current table detection appends tables at end of page text as a stopgap
-  - Should replace flattened text regions in-place using block bounding boxes
-  - Requires refactoring `extract_page_text_structured()` to track block positions
+- [ ] ~~Integrated table replacement in PyMuPDF engine~~: ✅ Done — `extract_page_text_with_blocks()` returns block bounding boxes; `_replace_tables_inplace()` uses `replace_tables_in_text()` for in-place replacement.
 
 - [ ] OCR fallback via OCRmyPDF
 - [ ] Font/encoding diagnostics beyond known dingbats fonts

@@ -89,7 +89,7 @@ Engines are registered via `@register_engine("name")` decorator and instantiated
 - `extract_section_text_structured(start_heading=...)`: Extracts only from heading onward on first page, preserving full multi-page content
 - Dingbat manifest: `extract_dingbat_manifest()` builds per-PDF font replacement map
 - Performance: ~0.1s/page (no ML models)
-- Table detection: `config.extract_tables = true` (default) — detects tables via `find_tables()` and appends Markdown pipe-tables to page text. In-place replacement is a future enhancement.
+- Table detection: `config.extract_tables = true` (default) — detects tables via `find_tables()` and replaces flattened text in-place with Markdown pipe tables using block bounding box matching.
 
 ### Engine Selection
 

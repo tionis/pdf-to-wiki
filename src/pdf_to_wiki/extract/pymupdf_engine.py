@@ -13,6 +13,7 @@ from pdf_to_wiki.extract import BaseEngine, register_engine
 from pdf_to_wiki.logging import get_logger
 from pdf_to_wiki.repair.clean_text import (
     extract_page_text_structured,
+    extract_page_text_with_blocks,
     find_heading_position,
     _detect_headers_footers,
     _strip_headers_footers,
@@ -78,11 +79,13 @@ class PyMuPDFEngine(BaseEngine):
             for page_idx in range(start_page, min(end_page + 1, doc.page_count)):
                 page = doc[page_idx]
                 skip = skip_before if (page_idx == start_page and skip_before != 0) else 0
-                page_text = extract_page_text_structured(page, skip_before=skip)
 
-                # Table detection and replacement
                 if self.config.extract_tables:
-                    page_text = self._replace_tables(doc, page, page_text, page_idx)
+                    # Use block-aware extraction for in-place table replacement
+                    page_text, ordered_blocks = extract_page_text_with_blocks(page, skip_before=skip)
+                    page_text = self._replace_tables_inplace(page, page_text, ordered_blocks, page_idx)
+                else:
+                    page_text = extract_page_text_structured(page, skip_before=skip)
 
                 if page_text.strip():
                     cleaned = _strip_headers_footers(page_text, header_footer_lines)
@@ -100,24 +103,26 @@ class PyMuPDFEngine(BaseEngine):
         finally:
             doc.close()
 
-    def _replace_tables(
+    def _replace_tables_inplace(
         self,
-        doc: fitz.Document,
         page: fitz.Page,
         page_text: str,
+        ordered_blocks: list[dict],
         page_idx: int,
     ) -> str:
-        """Detect tables on a page and replace flattened text with Markdown tables.
+        """Detect tables on a page and replace flattened text in-place.
 
-        Uses PyMuPDF's find_tables() to detect table regions, then replaces
-        the flattened text within those regions with properly formatted
-        Markdown pipe tables.
+        Uses PyMuPDF's find_tables() to detect table regions, then uses
+        block bounding box data to identify which text blocks fall within
+        table regions and replace them with Markdown pipe tables.
 
-        This is a best-effort replacement — the table Markdown may not
-        perfectly align with the original layout, but it preserves the
-        table structure (rows, columns) which is lost in plain text extraction.
+        This provides proper in-place table replacement: the flattened text
+        for table regions is replaced, not duplicated.
         """
-        from pdf_to_wiki.repair.table_extract import extract_tables_as_markdown
+        from pdf_to_wiki.repair.table_extract import (
+            extract_tables_as_markdown,
+            replace_tables_in_text,
+        )
 
         try:
             table_regions = extract_tables_as_markdown(page)
@@ -128,26 +133,14 @@ class PyMuPDFEngine(BaseEngine):
         if not table_regions:
             return page_text
 
-        # For each detected table, try to find and replace the corresponding
-        # text region. Since we can't precisely map bbox positions to text
-        # blocks in the already-extracted text, we use a heuristic:
-        # append the Markdown tables at the end of the page text.
-        #
-        # A more sophisticated approach would be to integrate table detection
-        # into the structured extraction, but that requires refactoring
-        # extract_page_text_structured() which handles the column-aware layout.
-        #
-        # For now, we append detected tables as a separate section.
-        # This avoids duplicating content from both the flattened text
-        # and the Markdown table.
-        md_tables = []
-        for Tab_bbox, md_text in table_regions:
-            md_tables.append(md_text)
-            logger.debug(f"Detected table on page {page_idx}: {Tab_bbox}")
+        for tab_bbox, md_text in table_regions:
+            logger.debug(f"Detected table on page {page_idx}: {tab_bbox}")
 
-        if md_tables:
-            # Append tables with a separator
+        # Use in-place replacement if block data is available
+        if ordered_blocks:
+            return replace_tables_in_text(page_text, table_regions, ordered_blocks)
+        else:
+            # Fallback: append tables at the end
+            md_tables = [md for _, md in table_regions]
             tables_section = "\n\n---\n\n" + "\n\n".join(md_tables)
-            page_text = page_text + tables_section
-
-        return page_text
+            return page_text + tables_section
