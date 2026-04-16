@@ -354,6 +354,108 @@ def validate(ctx: click.Context, source_id: str | None, validate_all_flag: bool)
         raise SystemExit(1)
 
 
+@main.command(name="diagnose")
+@click.argument("source_id")
+@click.option("--pages", default=None, help="Page range to diagnose (e.g., '1-10')")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON instead of text")
+@click.pass_context
+def diagnose(ctx: click.Context, source_id: str, pages: str | None, as_json: bool) -> None:
+    """Diagnose font and encoding issues in a registered PDF.
+
+    Scans the PDF for all fonts and character codes used on each page.
+    Reports unusual characters, symbol/dingbat fonts, and encoding issues.
+    Useful for debugging garbled text from PDFs with unusual encodings.
+    """
+    from pdf_to_wiki.cache.db import CacheDB
+    from pdf_to_wiki.ingest.diagnostics import diagnose_fonts
+
+    cfg = ctx.obj["config"]
+
+    db = CacheDB(cfg.resolved_cache_db_path())
+    source = db.get_pdf_source(source_id)
+    db.close()
+    if source is None:
+        click.echo(f"No registered PDF with source_id={source_id!r}.", err=True)
+        raise SystemExit(1)
+
+    page_range = _parse_page_range(pages) if pages else None
+    if page_range and page_range[0] >= 1:
+        # Convert 1-indexed user input to 0-indexed
+        page_range = (page_range[0] - 1, page_range[1] - 1)
+
+    output = diagnose_fonts(
+        source.path,
+        page_range=page_range,
+        output_format="json" if as_json else "text",
+    )
+    click.echo(output)
+
+
+@main.command(name="tables")
+@click.argument("source_id")
+@click.option("--min-rows", default=2, type=int, help="Minimum data rows for a table")
+@click.option("--min-cols", default=2, type=int, help="Minimum columns for a table")
+@click.option("--section", default=None, help="Only extract tables from this section ID")
+@click.option("--csv", "as_csv", is_flag=True, help="Output as CSV instead of JSON")
+@click.option("--force", is_flag=True, help="Force re-extraction")
+@click.pass_context
+def tables(ctx: click.Context, source_id: str, min_rows: int, min_cols: int, section: str | None, as_csv: bool, force: bool) -> None:
+    """Extract structured table data from a built wiki.
+
+    Scans the extracted text for Markdown pipe tables and outputs
+    them as structured JSON or CSV data. Useful for VTT import,
+    spreadsheet export, or structured queries.
+
+    Requires text extraction to have been run first.
+    """
+    from pdf_to_wiki.cache.artifact_store import ArtifactStore
+    from pdf_to_wiki.cache.db import CacheDB
+    from pdf_to_wiki.repair.structured_tables import (
+        extract_pipe_tables,
+        extract_structured_tables,
+    )
+
+    cfg = ctx.obj["config"]
+    artifacts = ArtifactStore(cfg.resolved_artifact_dir())
+
+    # Load extracted text
+    text_data = artifacts.load_json(source_id, "extract_text")
+    if not text_data:
+        click.echo(f"No extracted text for {source_id}. Run 'build' first.", err=True)
+        raise SystemExit(1)
+
+    # Filter to single section if requested
+    if section:
+        text_data = {k: v for k, v in text_data.items() if section in k}
+        if not text_data:
+            click.echo(f"No sections matching '{section}'.", err=True)
+            raise SystemExit(1)
+
+    if not as_csv:
+        import json
+        result = extract_structured_tables(text_data, min_rows=min_rows, min_cols=min_cols)
+        click.echo(json.dumps(result, indent=2))
+        click.echo(f"\nFound {len(result)} tables from {source_id}", err=True)
+    else:
+        all_tables = extract_structured_tables(text_data, min_rows=min_rows, min_cols=min_cols)
+        from pdf_to_wiki.repair.structured_tables import PipeTable
+        for i, table_data in enumerate(all_tables):
+            table = PipeTable(
+                headers=table_data["headers"],
+                rows=table_data["rows"],
+                caption=table_data.get("caption", ""),
+                section_id=table_data.get("section_id", ""),
+            )
+            if i > 0:
+                click.echo()  # Blank line between tables
+            if table.caption:
+                click.echo(f"# {table.caption}")
+            if table.section_id:
+                click.echo(f"# Section: {table.section_id}")
+            click.echo(table.to_csv())
+        click.echo(f"Found {len(all_tables)} tables from {source_id}", err=True)
+
+
 @main.command(name="build")
 @click.argument("source_id")
 @click.option("--force", is_flag=True, help="Force re-run all steps")

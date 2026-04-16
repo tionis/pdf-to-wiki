@@ -226,7 +226,9 @@ def _extract_with_marker(source, tree: SectionTree, engine, config: WikiConfig) 
 
     # Split the markdown by headings
     logger.info(f"Splitting Marker output into {len(sections)} sections by headings...")
-    extracted = split_markdown_by_headings(full_md, sections)
+    extracted = split_markdown_by_headings(
+        full_md, sections, max_absorb_depth=config.sub_heading_absorb_depth
+    )
 
     # For sections that didn't get heading-matched text, fall back to
     # per-page extraction using PyMuPDF (fast, no ML needed)

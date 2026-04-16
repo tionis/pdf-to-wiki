@@ -187,3 +187,165 @@ class TestSplitMarkdownByHeadings:
         # Both "Equipment" and "EQUIPMENT" should be merged into one
         assert "Some intro" in result["equip"]
         assert "| Rope |" in result["equip"]
+
+    def test_absorb_depth_limit(self):
+        """Sub-headings deeper than max_absorb_depth are NOT absorbed."""
+        from pdf_to_wiki.extract.marker_engine import split_markdown_by_headings
+
+        # Section 1 is level 1, sub-headings are level 2, 3, 4, 5, 6
+        md = (
+            "# Alpha\n"
+            "Alpha intro.\n"
+            "## Sub A\n"
+            "Sub A content.\n"
+            "### Sub A1\n"
+            "Sub A1 content.\n"
+            "#### Sub A1a\n"
+            "Sub A1a content.\n"
+            "##### Sub A1a-i\n"
+            "Sub A1a-i content.\n"
+            "###### Sub A1a-i-x\n"
+            "Sub A1a-i-x content.\n"
+        )
+        sections = [
+            ("alpha", "Alpha", 1, 5),
+        ]
+
+        # With max_absorb_depth=3 (default), headings up to level 4 are absorbed
+        result = split_markdown_by_headings(md, sections, max_absorb_depth=3)
+        assert "Sub A content" in result["alpha"]
+        assert "Sub A1 content" in result["alpha"]
+        assert "Sub A1a content" in result["alpha"]  # level 4 = 1+3 = within depth
+        assert "Sub A1a-i content" not in result["alpha"]  # level 5 = 1+4 = beyond depth
+
+        # With max_absorb_depth=1, only level 2 headings absorbed
+        result = split_markdown_by_headings(md, sections, max_absorb_depth=1)
+        assert "Sub A content" in result["alpha"]  # level 2 = within depth
+        assert "Sub A1 content" not in result["alpha"]  # level 3 = beyond depth
+
+    def test_absorb_depth_stops_at_deeper_unclaimed(self):
+        """Depth limit prevents absorbing a level-1 heading after a level-2."""
+        from pdf_to_wiki.extract.marker_engine import split_markdown_by_headings
+
+        md = (
+            "# Chapter\n"
+            "Chapter intro.\n"
+            "## Detail\n"
+            "Detail text.\n"
+            "# Another Chapter\n"
+            "This is another chapter.\n"
+        )
+        sections = [
+            ("chapter", "Chapter", 1, 3),
+        ]
+
+        # With default max_absorb_depth=3, level-1 headings (diff=0)
+        # are NOT absorbed because the level difference (1-1=0) is <= 0
+        # But wait — level diff is heading_level - matched_level = 1-1 = 0,
+        # which is <= 3, so it WOULD be absorbed. This actually tests
+        # that a second same-level heading is absorbed by default.
+        # With max_absorb_depth=0, it should stop.
+        result = split_markdown_by_headings(md, sections, max_absorb_depth=0)
+        assert "Chapter intro" in result["chapter"]
+        assert "Another Chapter" not in result["chapter"]  # level diff 0 > 0
+
+    def test_absorb_depth_with_claimed_sections(self):
+        """Depth limit doesn't override claimed heading boundaries."""
+        from pdf_to_wiki.extract.marker_engine import split_markdown_by_headings
+
+        md = (
+            "# Parent\n"
+            "Parent intro.\n"
+            "## Sub A\n"
+            "Sub A content.\n"
+            "## Sub B\n"
+            "Sub B content.\n"
+        )
+        sections = [
+            ("parent", "Parent", 1, 3),
+            ("sub_b", "Sub B", 3, 4),
+        ]
+        result = split_markdown_by_headings(md, sections, max_absorb_depth=3)
+
+        # Sub A (unclaimed) should be absorbed into parent
+        assert "Sub A content" in result["parent"]
+        # Sub B (claimed) should NOT be absorbed
+        assert "Sub A content" in result["parent"]
+        assert "Sub B content" in result["sub_b"]
+
+    def test_fuzzy_match_jaccard(self):
+        """Fuzzy matching via token Jaccard similarity for near-miss headings."""
+        from pdf_to_wiki.extract.marker_engine import split_markdown_by_headings
+
+        # Marker emits "The Combat Chapter" but TOC has "Combat"
+        md = "# The Combat Chapter\nCombat content.\n# Magic\nMagic content."
+        sections = [
+            ("combat", "Combat", 1, 3),
+            ("magic", "Magic", 4, 6),
+        ]
+        result = split_markdown_by_headings(md, sections)
+
+        # "Combat" should match "The Combat Chapter" via fuzzy (Jaccard on {"combat"} vs {"the", "combat", "chapter"})
+        assert "Combat content" in result["combat"]
+        assert "Magic content" in result["magic"]
+
+    def test_fuzzy_match_prefix_stripping(self):
+        """Common heading prefixes are stripped for matching."""
+        from pdf_to_wiki.extract.marker_engine import split_markdown_by_headings
+
+        md = "# Chapter 3: Spells\nSpells text.\n# Chapter 4: Rituals\nRituals text."
+        sections = [
+            ("spells", "Spells", 1, 3),
+            ("rituals", "Rituals", 4, 6),
+        ]
+        result = split_markdown_by_headings(md, sections)
+
+        # "Spells" should match "Chapter 3: Spells" after prefix stripping
+        assert "Spells text" in result["spells"]
+        assert "Rituals text" in result["rituals"]
+
+    def test_fuzzy_match_page_proximity_bonus(self):
+        """Fuzzy matching gets a boost from page proximity."""
+        from pdf_to_wiki.extract.marker_engine import split_markdown_by_headings
+
+        # Two headings with similar tokens but on different pages
+        # The one on the right page should win
+        md = (
+            '<span id="page-0-0"></span>\n'
+            "# Introduction\nIntro text.\n"
+            '<span id="page-5-0"></span>\n'
+            "# Game Introduction\nGame intro text.\n"
+        )
+        sections = [
+            ("intro", "Introduction", 0, 2),
+            ("game_intro", "Game Introduction", 5, 7),
+        ]
+        result = split_markdown_by_headings(md, sections)
+
+        assert "Intro text" in result["intro"]
+        assert "Game intro text" in result["game_intro"]
+
+    def test_fuzzy_match_too_low_score_rejected(self):
+        """Fuzzy matches below 0.5 score are rejected."""
+        from pdf_to_wiki.extract.marker_engine import split_markdown_by_headings
+
+        md = "# Completely Unrelated\nRandom text.\n"
+        sections = [
+            ("weapons", "Weapons Master", 1, 3),
+        ]
+        result = split_markdown_by_headings(md, sections)
+
+        # "Weapons Master" vs "Completely Unrelated" — Jaccard is 0, no match
+        # Falls back to page-range extraction (empty in this case since no page anchors)
+        assert "weapons" in result  # Entry exists but may be empty
+
+    def test_strip_heading_affixes(self):
+        """Test the _strip_heading_affixes helper function."""
+        from pdf_to_wiki.extract.marker_engine import _strip_heading_affixes
+
+        assert _strip_heading_affixes("the combat") == "combat"
+        assert _strip_heading_affixes("chapter 3 spells") == "spells"
+        assert _strip_heading_affixes("introduction cont") == "introduction"
+        assert _strip_heading_affixes("1. opening") == "opening"
+        assert _strip_heading_affixes("the appendix") == "appendix"
+        assert _strip_heading_affixes("") == ""

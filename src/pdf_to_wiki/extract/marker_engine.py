@@ -175,6 +175,7 @@ class MarkerEngine(BaseEngine):
 def split_markdown_by_headings(
     markdown: str,
     sections: list[tuple[str, str, int, int]],
+    max_absorb_depth: int = 3,
 ) -> dict[str, str]:
     """Split a full-PDF Markdown output into per-section content.
 
@@ -185,6 +186,11 @@ def split_markdown_by_headings(
     Args:
         markdown: Full Markdown text from Marker.
         sections: List of (section_id, title, start_page, end_page) tuples.
+        max_absorb_depth: Maximum heading level difference for absorbing
+            unclaimed sub-headings into a matched section. E.g., if the
+            matched heading is level 2 and max_absorb_depth=3, headings
+            up to level 5 will be absorbed. Default 3 is permissive;
+            set to 1 for strict same-level-only absorption.
 
     Returns:
         Dict mapping section_id → extracted Markdown text.
@@ -228,7 +234,10 @@ def split_markdown_by_headings(
     section_matches: dict[str, int] = {}  # section_id → heading_range index
     heading_claimed: set[int] = set()  # indices of heading_ranges claimed by sections
 
-    for section_id, title, _start_page, _end_page in sections:
+    # Track unclaimed headings for page-proximity fuzzy matching
+    unmatched_sections: list[tuple[str, str, int, int]] = []  # sections not yet matched
+
+    for section_id, title, start_page, end_page in sections:
         title_clean = _normalize_title(title)
         matched_idx = None
         best_score = 0
@@ -253,6 +262,77 @@ def split_markdown_by_headings(
         if matched_idx is not None and best_score >= 30:
             section_matches[section_id] = matched_idx
             heading_claimed.add(matched_idx)
+        else:
+            unmatched_sections.append((section_id, title, start_page, end_page))
+
+    # Pass 1b: Fuzzy matching for unmatched sections.
+    # When exact/substring matching fails, try fuzzy matching using:
+    # 1. Token-level Jaccard similarity (word overlap)
+    # 2. Page-proximity bonus (heading on/near the section's start page)
+    # 3. Prefix/suffix stripping ("The", "Chapter", section numbers)
+    if unmatched_sections:
+        # Build a map of heading_range index → approximate page number
+        # (estimated from page anchors in the markdown text)
+        heading_pages = _estimate_heading_pages(lines, heading_ranges)
+
+        for section_id, title, start_page, end_page in unmatched_sections:
+            title_clean = _normalize_title(title)
+            title_tokens = set(title_clean.split())
+            matched_idx = None
+            best_score = 0
+
+            for j, (_, _, _, heading_title) in enumerate(heading_ranges):
+                if j in heading_claimed:
+                    continue  # Already claimed by exact/substring match
+
+                ht_clean = _normalize_title(heading_title)
+                ht_tokens = set(ht_clean.split())
+
+                # Token-level Jaccard similarity
+                if title_tokens and ht_tokens:
+                    intersection = title_tokens & ht_tokens
+                    union = title_tokens | ht_tokens
+                    jaccard = len(intersection) / len(union) if union else 0
+                else:
+                    jaccard = 0
+
+                # Also try stripped versions (remove common prefixes/suffixes)
+                title_stripped = _strip_heading_affixes(title_clean)
+                ht_stripped = _strip_heading_affixes(ht_clean)
+                if title_stripped and ht_stripped:
+                    st_tokens = set(title_stripped.split())
+                    sh_tokens = set(ht_stripped.split())
+                    if st_tokens and sh_tokens:
+                        s_intersection = st_tokens & sh_tokens
+                        s_union = st_tokens | sh_tokens
+                        stripped_jaccard = len(s_intersection) / len(s_union) if s_union else 0
+                        jaccard = max(jaccard, stripped_jaccard)
+
+                if jaccard < 0.3:
+                    continue  # Too different to consider
+
+                # Page-proximity bonus: if the heading is on or near
+                # the section's start page, boost the score
+                page_bonus = 0.0
+                if j in heading_pages:
+                    page_dist = abs(heading_pages[j] - start_page)
+                    if page_dist == 0:
+                        page_bonus = 0.3
+                    elif page_dist <= 1:
+                        page_bonus = 0.2
+                    elif page_dist <= 2:
+                        page_bonus = 0.1
+
+                score = jaccard + page_bonus
+
+                if score > best_score:
+                    best_score = score
+                    matched_idx = j
+
+            # Require a minimum fuzzy score of 0.5
+            if matched_idx is not None and best_score >= 0.5:
+                section_matches[section_id] = matched_idx
+                heading_claimed.add(matched_idx)
 
     # Pass 2: For each matched section, absorb subsequent unclaimed
     # heading ranges. Marker often creates sub-headings (e.g. "Ranged
@@ -260,15 +340,30 @@ def split_markdown_by_headings(
     # important content like tables. We extend the section's end to cover
     # all consecutive unclaimed heading ranges until we hit one claimed
     # by another section.
+    #
+    # The max_absorb_depth parameter limits how deep sub-headings can be
+    # relative to the matched heading. E.g., if the matched heading is
+    # level 2 and max_absorb_depth=3, only headings at level 3-5 are
+    # absorbed. A heading at level 1 (deeper than the parent) would not
+    # be absorbed, preventing a pathological document from pulling in
+    # an entire chapter.
     section_end_idx: dict[str, int] = {}  # section_id → last heading_range index
     for section_id, match_idx in section_matches.items():
         end_idx = match_idx
+        matched_level = heading_ranges[match_idx][2]
         # Look ahead at subsequent heading ranges
         for j in range(match_idx + 1, len(heading_ranges)):
             if j in heading_claimed:
                 # This heading is claimed by another section — stop
                 break
-            # Unclaimed heading — absorb it
+            # Check depth limit: only absorb if the heading is deep enough
+            # relative to the matched heading
+            sub_level = heading_ranges[j][2]
+            if (sub_level - matched_level) > max_absorb_depth:
+                # Too deep — stop absorbing. This heading likely starts
+                # a new major section that just happens to be unclaimed.
+                break
+            # Unclaimed heading within depth limit — absorb it
             end_idx = j
         section_end_idx[section_id] = end_idx
 
@@ -356,6 +451,80 @@ def _normalize_title(title: str) -> str:
     # Strip trailing punctuation
     t = t.rstrip(".,;:!?")
     return t
+
+
+# Common heading prefixes/suffixes to strip for fuzzy matching
+# These are words commonly added by markers but not in the TOC
+_STRIP_PREFIXES = {"the", "a", "an", "chapter", "ch", "section", "part", "book", "appendix"}
+_STRIP_SUFFIXES = {"cont", "contd", "continued", "(cont)", "(continued)"}
+
+
+def _strip_heading_affixes(title: str) -> str:
+    """Strip common heading prefixes and suffixes for fuzzy matching.
+
+    Removes article words (the, a, an), chapter/section labels, and
+    continuation markers that often cause mismatches between the TOC
+    and Marker's emitted headings.
+    """
+    tokens = title.split()
+    if not tokens:
+        return title
+
+    # Strip prefixes
+    while tokens and tokens[0] in _STRIP_PREFIXES:
+        remaining = tokens[1:]
+        if not remaining:
+            break  # Don't strip if it would leave nothing
+        tokens = remaining
+
+    # Strip suffixes
+    while tokens and tokens[-1] in _STRIP_SUFFIXES:
+        tokens = tokens[:-1]
+
+    # Also strip numeric prefixes like "1.", "2.", etc.
+    if tokens and re.match(r"^\d+\.?", tokens[0]):
+        tokens[0] = re.sub(r"^\d+\.?\s*", "", tokens[0])
+        if not tokens[0]:
+            tokens = tokens[1:]
+
+    return " ".join(tokens)
+
+
+def _estimate_heading_pages(
+    lines: list[str],
+    heading_ranges: list[tuple[int, int, int, str]],
+) -> dict[int, int]:
+    """Estimate the PDF page number for each heading range.
+
+    Uses Marker's <span id="page-N-M"> anchors to map line positions
+    to page numbers. Each heading range's page is estimated as the
+    page of the first anchor at or before the heading's start line.
+
+    Returns:
+        Dict mapping heading_range index → estimated 0-based page number.
+    """
+    # Build map of line → page number from page anchors
+    anchor_pages: list[tuple[int, int]] = []  # (line_idx, page_num)
+    for i, line in enumerate(lines):
+        m = re.match(r'<span\s+id="page-(\d+)-\d+"\s*>\s*</span>', line)
+        if m:
+            anchor_pages.append((i, int(m.group(1))))
+
+    if not anchor_pages:
+        return {}
+
+    result: dict[int, int] = {}
+    for j, (start_line, _end, _level, _title) in enumerate(heading_ranges):
+        # Find the last anchor before or at start_line
+        page = 0
+        for anchor_line, anchor_page in anchor_pages:
+            if anchor_line <= start_line:
+                page = anchor_page
+            else:
+                break
+        result[j] = page
+
+    return result
 
 
 def save_images(
