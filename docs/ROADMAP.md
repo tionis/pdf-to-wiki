@@ -13,7 +13,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - **Chronicles of Darkness** (301 pages, 521 sections, 37 table sections, 1.63M chars)
 - **Shadowrun 5E Core Rulebook** (502 pages, 544 sections, 3-level deep TOC, 2.66M chars)
 
-**231 tests passing.**
+**270 tests passing.**
 
 ---
 
@@ -178,33 +178,35 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ### Next
 
-- [ ] Heading repair (extractor vs TOC disagreement)
-  - When Marker emits heading text that differs from the PDF TOC, the heading-based
-    split fails (5/521 CoD sections fell back to PyMuPDF).
-  - A reconciliation step that normalizes/fuzzy-matches Marker headings against
-    the TOC would improve match rates.
-  - Font-size heading detection partially mitigates this already.
+- [x] Heading repair (extractor vs TOC disagreement)
+  - ✅ Pass 1b fuzzy matching: Jaccard token similarity, page-proximity bonus,
+    prefix/suffix stripping (`_strip_heading_affixes()`, `_estimate_heading_pages()`).
+  - Rejected if fuzzy score < 0.5.
+  - 5 new tests.
 
-- [ ] Roman-numeral front-matter detection
-  - Some PDFs have no `/PageLabels` dict and use i/ii/iii... for front matter.
-  - A heuristic to detect consecutive Roman-numeral pages in the first N pages
-    and synthesize page labels from them would close the robustness gap.
+- [x] Roman-numeral front-matter detection
+  - ✅ `_detect_roman_numerals()` heuristic in `extract_page_labels.py`.
+  - Scans first N pages for consecutive Roman numeral page numbers.
+  - Integrates as fallback #3 in `_compute_page_labels()`.
+  - 5 new tests.
 
-- [ ] Sub-heading depth limit for absorption
-  - Currently absorbs all consecutive unclaimed headings at any depth.
-  - Pathological PDFs with deeply nested sub-headings could over-absorb.
-  - Add a configurable limit (default: absorb up to 2 levels deeper than the parent).
+- [x] Sub-heading depth limit for absorption
+  - ✅ `max_absorb_depth` parameter (default: 3) in `split_markdown_by_headings()`.
+  - Config setting: `sub_heading_absorb_depth`.
+  - 3 new tests.
 
-- [ ] Structured table data extraction (JSON output for stat/gear tables)
-  - Current pipe-table Markdown is fine for reading, but structured JSON output
-    would enable downstream tooling (e.g., importing gear tables into VTTs).
-  - Would work on Marker output where pipe tables are preserved.
-  - Key files: new `src/pdf_to_wiki/repair/structured_tables.py`
+- [x] Structured table data extraction (JSON output for stat/gear tables)
+  - ✅ New module: `src/pdf_to_wiki/repair/structured_tables.py`.
+  - `parse_pipe_table()`, `extract_pipe_tables()`, `extract_structured_tables()`.
+  - CLI: `pdf-to-wiki tables SOURCE_ID [--min-rows N] [--min-cols N] [--csv]`.
+  - `PipeTable.to_dict()`, `PipeTable.to_csv()` for export.
+  - 20 new tests.
 
-- [ ] Font/encoding diagnostics utility
-  - A diagnostic mode that dumps all fonts and character codes per page
-    would help debug garbled text from obscure PDFs.
-  - Low priority; useful when onboarding a new PDF with encoding issues.
+- [x] Font/encoding diagnostics utility
+  - ✅ New module: `src/pdf_to_wiki/ingest/diagnostics.py`.
+  - CLI: `pdf-to-wiki diagnose SOURCE_ID [--pages P-R] [--json]`.
+  - Reports font usage, character frequencies, suspicious chars, symbol fonts.
+  - 6 new tests.
 
 - [ ] Full Marker build on Shadowrun 5E
   - SR has 83+ gear/equipment sections with tables that PyMuPDF flattens.
@@ -237,10 +239,10 @@ These items were evaluated and removed from the roadmap:
 ## Open Questions
 
 1. ~~Marker vs Docling~~: ✅ Resolved — both are pluggable engines. Docling is ~5-10x faster but has different output tradeoffs.
-2. **Page-label robustness**: Partially resolved. Remaining gap: PDFs with no `/PageLabels` dict AND no detectable font-size headings. Roman-numeral front-matter heuristic would close this gap.
+2. **Page-label robustness**: ✅ Resolved — Roman-numeral front-matter heuristic detection added as fallback #3. Handles PDFs with no `/PageLabels` dict that use i/ii/iii... numbering.
 3. ~~Entity extraction approach~~: ✅ Resolved — deterministic bold/italic pattern extraction via `extract_glossary.py` + entity pages.
 4. ~~PyMuPDF table extraction~~: ✅ Resolved — wired into PyMuPDF engine via `config.extract_tables = true` with in-place replacement.
-5. **Sub-heading depth limit**: Should sub-heading absorption stop at a certain heading level difference? No observed problems yet, but a depth limit is a defensive improvement.
+5. **Sub-heading depth limit**: ✅ Resolved — `max_absorb_depth` parameter (default: 3) added to `split_markdown_by_headings()`. Configurable via `sub_heading_absorb_depth` setting.
 
 ---
 
@@ -259,6 +261,52 @@ These items were evaluated and removed from the roadmap:
 ---
 
 ## Change Log
+
+### 2025-04-19 — Roadmap items implemented, 270 tests
+
+- Sub-heading depth limit for Marker heading absorption:
+  - `max_absorb_depth` parameter (default: 3) in `split_markdown_by_headings()`
+  - Configurable via `sub_heading_absorb_depth` setting
+  - Prevents pathological over-absorption of deeply nested sub-headings
+  - 3 new tests
+
+- Roman-numeral front-matter detection:
+  - `_detect_roman_numerals()` heuristic in `extract_page_labels.py`
+  - Scans first 30 pages for consecutive Roman-numeral page numbers (i, ii, iii...)
+  - Integrates as fallback #3 in `_compute_page_labels()` (after pypdf, manual /PageLabels)
+  - `_is_roman_numeral()` and `_roman_to_int()` helper functions
+  - Handles pre-Roman cover pages with 'pre-N' labels
+  - 5 new tests
+
+- Heading repair (extractor vs TOC disagreement):
+  - Pass 1b fuzzy matching in `split_markdown_by_headings()`
+  - Jaccard token similarity for word-overlap matching
+  - Page-proximity bonus using Marker `<span id="page-N-M">` anchors
+  - `_strip_heading_affixes()` strips common prefixes (the, chapter, section, etc.)
+  - `_estimate_heading_pages()` maps heading positions to PDF page numbers
+  - Rejected if fuzzy score < 0.5 minimum threshold
+  - 5 new tests
+
+- Font/encoding diagnostics utility:
+  - New module: `src/pdf_to_wiki/ingest/diagnostics.py`
+  - `diagnose_fonts()` scans PDF pages, reports font usage, character frequencies
+  - Detects suspicious chars (control codes, private-use-area, replacement chars)
+  - Identifies symbol/dingbat fonts, per-page font usage summary
+  - CLI: `pdf-to-wiki diagnose SOURCE_ID [--pages P-R] [--json]`
+  - 6 new tests
+
+- Structured table data extraction:
+  - New module: `src/pdf_to_wiki/repair/structured_tables.py`
+  - `parse_pipe_table()`: Markdown pipe table → `PipeTable` dataclass with headers + rows
+  - `extract_pipe_tables()`: find all tables in Markdown text, capture captions
+  - `extract_structured_tables()`: full pipeline extraction from section data
+  - Handles: alignment markers, empty cells, duplicate headers, `<br>` normalization
+  - `PipeTable.to_dict()` and `PipeTable.to_csv()` for JSON/CSV export
+  - CLI: `pdf-to-wiki tables SOURCE_ID [--min-rows N] [--min-cols N] [--csv]`
+  - 20 new tests
+
+- Roadmap cleanup: removed 7 stale/out-of-scope items, closed 2 tech debts
+- 270 tests passing (39 new)
 
 ### 2025-04-18 — Entity link injection, 231 tests
 
