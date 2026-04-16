@@ -26,6 +26,7 @@ def repair_text(
     """Apply all repair/normalization steps to extracted text."""
     text = clean_marker_artifacts(text)
     text = remap_dingbat_bullets(text, dingbat_manifest=dingbat_manifest)
+    text = strip_running_headers(text)
     text = fix_ocr_word_breaks(text)
     text = normalize_bullets(text)
     text = normalize_whitespace(text)
@@ -344,6 +345,21 @@ def normalize_whitespace(text: str) -> str:
             result.append(stripped)
 
     return "\n".join(result).strip() + "\n"
+
+
+def strip_running_headers(text: str) -> str:
+    """Remove PDF running headers from extracted text.
+
+    Some publishers use distinctive markup for running chapter headers
+    that survive header/footer detection. Known patterns:
+
+    - `\u003e\u003e CHAPTER NAME \u003c\u003c` — Shadowrun / Catalyst Game Labs uses
+      `\u003e\u003e GAMEMASTER ADVICE \u003c\u003c`, `\u003e\u003e COMBAT \u003c\u003c`, etc.
+      These appear at the top of pages as running section indicators.
+    """
+    # Strip >> TEXT << running headers (Shadowrun/Catalyst)
+    text = re.sub(r'^\s*>>\s+.+?\s+<<\s*$', '', text, flags=re.MULTILINE)
+    return text
 
 
 def annotate_page_references(text: str) -> str:

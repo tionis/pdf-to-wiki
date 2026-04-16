@@ -10,6 +10,7 @@ from pdf_to_wiki.repair.normalize import (
     annotate_page_references,
     remap_dingbat_bullets,
     clean_marker_artifacts,
+    strip_running_headers,
 )
 
 
@@ -266,3 +267,35 @@ class TestAnnotatePageReferencesExtended:
         text = "See p. 43 for details"
         result = annotate_page_references(text)
         assert "{{page-ref:43}}" in result
+
+
+class TestStripRunningHeaders:
+    """Tests for PDF running header removal."""
+
+    def test_shadowrun_angle_brackets(self):
+        """>> GAMEMASTER ADVICE << should be stripped."""
+        text = "Some text\n>> GAMEMASTER ADVICE <<\nMore text"
+        result = strip_running_headers(text)
+        assert "GAMEMASTER ADVICE" not in result
+        assert "Some text" in result
+        assert "More text" in result
+
+    def test_multiple_running_headers(self):
+        """Multiple >> TEXT << on different lines."""
+        text = ">> COMBAT <<\nAttack roll\n>> COMBAT <<\nDefense roll"
+        result = strip_running_headers(text)
+        assert ">" not in result
+        assert "Attack roll" in result
+        assert "Defense roll" in result
+
+    def test_normal_greater_than_preserved(self):
+        """Normal > usage (blockquote) should NOT be stripped."""
+        text = "> This is a blockquote\n> Another line"
+        result = strip_running_headers(text)
+        assert result == text  # Unchanged
+
+    def test_inline_angle_brackets_preserved(self):
+        """Inline >> << not on own line should be preserved."""
+        text = "Use the double-angle for bit shifting"
+        result = strip_running_headers(text)
+        assert "double-angle" in result
