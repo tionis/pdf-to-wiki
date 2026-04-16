@@ -330,7 +330,7 @@ The pipeline reads from `pdf-to-wiki.toml` (or `pdf_to_wiki.toml`).
 
 ```toml
 [wiki]
-output_dir = "./data/outputs/wiki"
+output_dir = "./pdfWiki"
 books_dir = "books"
 
 [cache]

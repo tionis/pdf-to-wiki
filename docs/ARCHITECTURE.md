@@ -233,7 +233,7 @@ src/pdf_to_wiki/
 ## Output Structure
 
 ```
-data/outputs/wiki/
+pdfWiki/
 ├── books/
 │   ├── index.md                    # Global wiki index (links to all books)
 │   ├── chronicles-of-darkness/

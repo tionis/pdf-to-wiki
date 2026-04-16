@@ -37,7 +37,7 @@ class WikiConfig:
     """Configuration for the pdf-to-wiki pipeline."""
 
     # Output is project-specific (relative to working directory)
-    output_dir: str = "./data/outputs/wiki"
+    output_dir: str = "./pdfWiki"
     books_dir: str = "books"
 
     # Cache is global (user-specific, shared across projects)

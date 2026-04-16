@@ -17,6 +17,9 @@ dist/
 # Runtime data
 data/cache/
 data/artifacts/
+# Wiki output (mutable, regenerated from cache)
+pdfWiki/
+# Legacy path (pre-hash-addressed cache)
 data/outputs/
 
 # IDE
