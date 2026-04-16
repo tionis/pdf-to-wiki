@@ -109,7 +109,8 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Glossary wired into `build` pipeline (`--glossary` flag, auto-enabled for Marker/Docling engines)
 - [x] PyMuPDF table extraction wiring (`config.extract_tables = true`, Tech debt #6 resolved)
 - [x] Entity link injection (`inject_entity_links`, config: `inject_entity_links = true`)
-- [x] 231 tests passing (40 entity page tests, 12 injection tests)
+- [x] BlobForge import (`import-blobforge` CLI, reuse distributed Marker output)
+- [x] 281 tests passing
 
 ---
 
@@ -261,6 +262,28 @@ These items were evaluated and removed from the roadmap:
 ---
 
 ## Change Log
+
+### 2025-04-19 — BlobForge import, 281 tests
+
+- BlobForge import command (`pdf-to-wiki import-blobforge`):
+  - Import Marker output from BlobForge distributed conversion system
+  - Places `content.md` as `marker_full_md.md` in artifact store
+  - Pipeline skips the expensive Marker conversion when cached output exists
+  - Accepts `--zip` (BlobForge conversion zip) or `--markdown` (bare content.md)
+  - `--build` flag runs full pipeline after import
+  - `--force` overwrites existing marker artifacts
+  - `--glossary` / `--no-validate` pass through to build
+  - Extracts images from zip to `books/<source_id>/.assets/`
+  - Saves BlobForge `info.json` as `blobforge_info.json` artifact
+  - `import_from_s3()` for direct S3 download (requires blobforge package)
+  - New module: `src/pdf_to_wiki/ingest/import_blobforge.py`
+  - 11 new tests (281 total)
+
+- Full Marker build on Shadowrun 5E:
+  - 502 pages, 544 sections, 5.58M chars, 141 table sections
+  - 312 structured tables extracted, 26 glossary entries, 4,493 images
+  - 0 validation issues
+  - 24 sections fell back to PyMuPDF (95.6% heading match rate)
 
 ### 2025-04-19 — Roadmap items implemented, 270 tests
 

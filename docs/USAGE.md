@@ -229,6 +229,72 @@ Requires `pdf-to-wiki glossary` to have been run first. Generates:
 - `books/<source_id>/entities/<slug>.md` — Individual entity stub pages
 - `books/<source_id>/entities/index.md` — Alphabetical entity index with letter navigation
 
+### `pdf-to-wiki import-blobforge`
+
+Import a BlobForge conversion and optionally run the full pipeline. This places BlobForge's Marker output into the pdf-to-wiki artifact store, then the pipeline skips the expensive Marker conversion step (using the cached output instead).
+
+The original PDF is still needed for TOC extraction, page-label extraction, and dingbat/image processing — but those are all fast (seconds, not hours).
+
+```bash
+# Import from a BlobForge conversion zip, then build:
+pdf-to-wiki import-blobforge book.pdf --zip abc123.zip --build
+
+# Import from already-extracted content.md:
+pdf-to-wiki import-blobforge book.pdf --markdown content.md
+
+# Import and build with glossary + validation:
+pdf-to-wiki import-blobforge book.pdf --zip abc123.zip --build --glossary
+
+# Overwrite existing marker artifact:
+pdf-to-wiki import-blobforge book.pdf --zip abc123.zip --force --build
+```
+
+Options:
+- `--zip <path>` — Path to BlobForge conversion zip (contains content.md, assets/, info.json)
+- `--markdown <path>` — Path to already-extracted content.md file
+- `--force` — Overwrite existing marker artifact
+- `--build` — Automatically run the full pipeline after import
+- `--glossary` — Extract glossary and entity pages (auto-enabled for Marker)
+- `--no-validate` — Skip post-build validation
+
+### `pdf-to-wiki diagnose`
+
+Diagnose font and encoding issues in a registered PDF. Scans each page for all fonts and character codes, reports unusual characters, symbol/dingbat fonts, and encoding issues.
+
+```bash
+# Full diagnostics
+pdf-to-wiki diagnose my-rulebook
+
+# Focus on specific pages
+pdf-to-wiki diagnose my-rulebook --pages 1-30
+
+# Machine-readable JSON output
+pdf-to-wiki diagnose my-rulebook --json
+```
+
+Reports:
+- Font summary (names, sizes, bold/italic, symbol font detection)
+- Unusual character detection (control chars, private-use-area, replacement chars)
+- Per-page font usage
+
+### `pdf-to-wiki tables`
+
+Extract structured table data from a built wiki. Parses Markdown pipe tables into JSON or CSV suitable for VTT import, spreadsheet export, or structured queries.
+
+```bash
+# JSON output (default)
+pdf-to-wiki tables my-rulebook
+
+# CSV output
+pdf-to-wiki tables my-rulebook --csv
+
+# Only tables with 3+ rows
+pdf-to-wiki tables my-rulebook --min-rows 3
+
+# Only tables from specific sections
+pdf-to-wiki tables my-rulebook --section weapons
+```
+
 ## Global Options
 
 - `--config <path>` — Path to a configuration TOML file
