@@ -6,7 +6,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ## Current Status
 
-**Milestone 5 complete.** Core pipeline and quality features are all implemented. Semantic enrichment (glossary, entity pages, LLM) is deferred to a future M6 milestone. The pipeline processes full rulebook PDFs through TOC extraction, section tree construction, text extraction (Marker or PyMuPDF), repair/normalization, and Markdown emission. Tables are preserved via Marker's native Markdown pipe-table output (37 sections with tables in CoD build). Multiple PDFs can be ingested into a shared wiki with proper namespacing. Internal links use standard Markdown relative links (`[Title](../path/to/section.md)`) for broad compatibility. Dingbats font characters (e.g., FantasyRPGDings `Y` → `•`) are remapped via per-PDF font manifest. TTRPG dot ratings (`•`, `••`, `•••`) are preserved. Marker sub-heading absorption ensures tables under unTOC'd headings are captured. Marker page-anchor spans and page-links are stripped. Mid-page section extraction uses font-size-based heading detection. Build-time validation (`validate` command) checks for broken links, missing images, orphan files. `--dry-run`, `--sections`, and `--page-range` CLI filters enable selective processing. No-TOC PDFs are supported via font-size heading synthesis. Image alt text is populated from section titles for accessibility. HTML `<br>` in Marker tables is converted to ` / ` for broad Markdown compatibility. Joined game-term + page-ref patterns (`Parkourp. 48` → `Parkour p. 48`) are detected and annotated.
+**Milestone 5 complete.** The pipeline is feature-complete for production use. It processes full rulebook PDFs through TOC extraction, section tree construction, text extraction (Marker, PyMuPDF, or Docling), repair/normalization, glossary extraction, entity page generation, entity link injection, and Markdown emission — with auto-validation. Tables are preserved via Marker's native pipe-table output or PyMuPDF's `find_tables()` with in-place replacement. Three extraction engines at three price points: PyMuPDF (~0.1s/page), Docling (~1-5s/page), Marker (~30s/page). Multiple PDFs can be ingested into a shared wiki with proper namespacing. Internal links use standard Markdown relative links for broad compatibility.
 
 **Tested on three large rulebooks:**
 - **Storypath Ultra Core Manual** (257 pages, 450 sections, 9 tables)
@@ -65,8 +65,8 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Marker page-link unwrapping (`[\(p.21\)](#page-21-0)` → plain text before page-ref annotation)
 - [x] `repair` CLI command (re-emits with repair applied)
 - [x] 115 tests passing
-- [ ] OCR fallback for problematic pages (optional, deferred)
-- [ ] LLM-assisted structural disambiguation (cached, optional, deferred)
+- [ ] OCR fallback for problematic pages (dropped — Marker/Docling have built-in OCR)
+- [ ] LLM-assisted structural disambiguation (dropped from roadmap — deterministic pipeline sufficient)
 
 ### Milestone 4 — Multi-PDF wiki ingestion ✅
 
@@ -80,7 +80,7 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 - [x] Single-root TOC unwrapping with slug deduplication (`_unwrap_single_root()`)
 - [x] Parent section content clipping (pages before first child only)
 - [x] Portable source_pdf frontmatter (`filename.pdf (sha256:hash)` instead of absolute path)
-- [ ] Configurable output structure (flat vs. nested per book)
+- [ ] Configurable output structure (dropped — nested structure works well, no use case for flat)
 
 ### Milestone 5 — Cross-book linking and semantic enrichment ✅
 
@@ -178,60 +178,83 @@ Build a pipeline that ingests pen-and-paper rulebook PDFs and produces a structu
 
 ### Next
 
-- [ ] Design extraction artifact schema (structured, not just raw text)
-  - Current `extract_text.json` maps `section_id → raw_text_string`
-  - Structured schema would include: paragraphs, tables (as structured data, not pipe-text), image refs, bold/italic spans, page anchors
-  - This enables richer downstream processing (glossary extraction, entity detection)
-  - Key files: `src/pdf_to_wiki/models.py`, `src/pdf_to_wiki/ingest/extract_text.py`
-
-- [x] Entity page reference injection
-  - After entity pages are generated, inject `[Term](entities/term.md)` links into section text
-  - Only for terms not already in bold/headings/links
-  - Makes the wiki more browsable: click any game term to see its definition
-  - Config: `inject_entity_links = true` (default)
-  - Two-pass algorithm: collect matches → replace end-to-start
-
-- [ ] ~~Integrated table replacement in PyMuPDF engine~~: ✅ Done — `extract_page_text_with_blocks()` returns block bounding boxes; `_replace_tables_inplace()` uses `replace_tables_in_text()` for in-place replacement.
-
-- [ ] OCR fallback via OCRmyPDF
-- [ ] Font/encoding diagnostics beyond known dingbats fonts
 - [ ] Heading repair (extractor vs TOC disagreement)
-- [ ] Configurable split depth for note generation
-- [ ] Configurable output structure (flat vs. nested per book)
-- [ ] Section anchors for reference rewriting
-- [ ] Obsidian search index generation
-- [ ] LLM-assisted structural disambiguation and enrichment (cached, optional)
+  - When Marker emits heading text that differs from the PDF TOC, the heading-based
+    split fails (5/521 CoD sections fell back to PyMuPDF).
+  - A reconciliation step that normalizes/fuzzy-matches Marker headings against
+    the TOC would improve match rates.
+  - Font-size heading detection partially mitigates this already.
 
-### Deferred / Later
+- [ ] Roman-numeral front-matter detection
+  - Some PDFs have no `/PageLabels` dict and use i/ii/iii... for front matter.
+  - A heuristic to detect consecutive Roman-numeral pages in the first N pages
+    and synthesize page labels from them would close the robustness gap.
 
-(Moved items above to Next — these are lower priority)
+- [ ] Sub-heading depth limit for absorption
+  - Currently absorbs all consecutive unclaimed headings at any depth.
+  - Pathological PDFs with deeply nested sub-headings could over-absorb.
+  - Add a configurable limit (default: absorb up to 2 levels deeper than the parent).
 
-- [ ] Full Marker build on Shadowrun 5E (strong case: table-heavy content)
+- [ ] Structured table data extraction (JSON output for stat/gear tables)
+  - Current pipe-table Markdown is fine for reading, but structured JSON output
+    would enable downstream tooling (e.g., importing gear tables into VTTs).
+  - Would work on Marker output where pipe tables are preserved.
+  - Key files: new `src/pdf_to_wiki/repair/structured_tables.py`
+
+- [ ] Font/encoding diagnostics utility
+  - A diagnostic mode that dumps all fonts and character codes per page
+    would help debug garbled text from obscure PDFs.
+  - Low priority; useful when onboarding a new PDF with encoding issues.
+
+- [ ] Full Marker build on Shadowrun 5E
+  - SR has 83+ gear/equipment sections with tables that PyMuPDF flattens.
+  - Marker would preserve those as pipe tables. ~4h CPU build time.
+  - This is an execution task, not a code change.
+
+### Dropped (out of scope or no longer needed)
+
+These items were evaluated and removed from the roadmap:
+
+- ~~Design extraction artifact schema~~ — The raw-text `extract_text.json` already supports
+  glossary extraction, entity detection, and link injection. A fully structured schema
+  (paragraphs, bold/italic spans, etc.) doesn't unlock anything we don't already have.
+- ~~OCR fallback via OCRmyPDF~~ — No test PDFs are scanned. Marker and Docling both have
+  built-in OCR layers if needed. A separate OCRmyPDF dependency has no current use case.
+- ~~LLM-assisted structural disambiguation~~ — The deterministic pipeline already handles
+  glossary, entity pages, and link injection. LLM enrichment is a fundamentally different
+  product (non-deterministic, requires Ollama infra). Removed from this roadmap.
+- ~~Obsidian search index generation~~ — Output is standard Markdown with relative links;
+  search indexing is the consumer's job (Obsidian, GitHub, VS Code all build their own).
+- ~~Section anchors for reference rewriting~~ — `[Title](../path/section.md)` links already
+  work. Deep-link anchors within a section are a nice-to-have with no concrete use case.
+- ~~Configurable output structure (flat vs. nested)~~ — The nested `books/source_id/chapter/`
+  structure works well for all 3 test books. No one has requested flat output.
+- ~~Configurable split depth~~ — Per-section note granularity is what makes the wiki
+  browsable. Coarse splitting loses content isolation. No concrete use case.
 
 ---
 
 ## Open Questions
 
-1. **Marker vs Docling vs Marker**: Resolved — both are now supported as pluggable engines. Docling is ~5-10x faster but has different output tradeoffs.
-2. **Page-label robustness**: Partially resolved — no-TOC PDFs now fall back to font-size heading synthesis. Remaining gap: PDFs with no `/PageLabels` dict AND no detectable font-size headings. Should we attempt to detect Roman-numeral front matter heuristically?
-3. **LLM cache eviction policy**: When should cached LLM responses be invalidated? Current design only invalidates on config hash change.
-4. **Entity extraction approach**: Resolved — using deterministic bold/italic pattern extraction via `extract_glossary.py`. Entity pages (`entity_pages.py`) generate cross-reference stubs. LLM enrichment of entity pages remains a future option.
-5. **PyMuPDF table extraction**: `page.find_tables()` can detect tables but produces split-column artifacts. Marker handles tables natively. Should we wire in PyMuPDF table extraction as fallback for when Marker isn't available?
-6. **Sub-heading depth limit**: Should sub-heading absorption stop at a certain heading level difference? Currently absorbs all consecutive unclaimed headings; might over-absorb in edge cases.
+1. ~~Marker vs Docling~~: ✅ Resolved — both are pluggable engines. Docling is ~5-10x faster but has different output tradeoffs.
+2. **Page-label robustness**: Partially resolved. Remaining gap: PDFs with no `/PageLabels` dict AND no detectable font-size headings. Roman-numeral front-matter heuristic would close this gap.
+3. ~~Entity extraction approach~~: ✅ Resolved — deterministic bold/italic pattern extraction via `extract_glossary.py` + entity pages.
+4. ~~PyMuPDF table extraction~~: ✅ Resolved — wired into PyMuPDF engine via `config.extract_tables = true` with in-place replacement.
+5. **Sub-heading depth limit**: Should sub-heading absorption stop at a certain heading level difference? No observed problems yet, but a depth limit is a defensive improvement.
 
 ---
 
 ## Technical Debt
 
-1. **CacheDB connection management**: Currently opens/closes per command. Should use a shared connection pool or context manager in a long-running process.
-2. **Marker singleton**: The global `_marker_converter` and `_model_dict` are process-level singletons; not safe for multi-threaded use.
-3. ~~No dry-run mode~~: ✅ Added — `--dry-run` flag prevents file writes.
-4. ~~No `--sections` filter~~: ✅ Added — `--sections` and `--page-range` filters.
-5. ~~Old output cleanup~~: ✅ Fixed — `emit-skeleton --force` now removes stale files from previous runs.
-6. ~~table_extract.py not wired~~: ✅ Fixed — PyMuPDF engine now uses `find_tables()` when `config.extract_tables = true` (default). Tables appended as Markdown pipe-tables. In-place replacement still a future enhancement.
-7. **6 sections with <50 chars**: Mostly character entries in fiction chapters (God Machine Chronicle NPCs) where content is under sub-headings in the Marker output. Low priority since these are narrative, not rules content.
-8. **~30s/page Marker latency**: CoD build took 6.5h. Consider Docling or GPU acceleration for faster builds.
-9. ~~validate command doesn't run automatically~~: ✅ Fixed — `build` now runs validation automatically; `--no-validate` to skip.
+1. **CacheDB connection management**: Opens/closes per command. Fine for CLI use; would need a connection pool only if run as a long-lived service. Low priority.
+2. **Marker singleton**: `_marker_converter` and `_model_dict` are process-level singletons; not thread-safe. Same as #1 — fine for CLI.
+3. ~~No dry-run mode~~: ✅ Added.
+4. ~~No `--sections` filter~~: ✅ Added.
+5. ~~Old output cleanup~~: ✅ Fixed.
+6. ~~table_extract.py not wired~~: ✅ Fixed — PyMuPDF engine uses `find_tables()` with in-place replacement via `replace_tables_in_text()`.
+7. ~~6 sections with <50 chars~~: Won't fix — narrative NPC entries, not rules content.
+8. ~~~30s/page Marker latency~~: Resolved — Docling engine provides ~1-5s/page alternative. Three engines now at three price points (pymupdf ~0.1s, docling ~1-5s, marker ~30s).
+9. ~~validate command doesn't run automatically~~: ✅ Fixed.
 
 ---
 

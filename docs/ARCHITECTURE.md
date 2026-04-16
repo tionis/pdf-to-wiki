@@ -209,7 +209,7 @@ src/pdf_to_wiki/
 │   ├── markdown_writer.py  # Markdown emission (frontmatter, asset paths, stale cleanup, section/page filters)
 │   ├── obsidian_paths.py   # Deterministic path generation
 │   └── validate.py         # Post-build validation (broken links, orphan files, missing images)
-├── llm/                 # (Stub) Future: Ollama-backed enrichment
+├── llm/                 # (Stub) LLM enrichment dropped from roadmap
 ├── cache/
 │   ├── db.py            # SQLite cache database
 │   ├── artifact_store.py # Filesystem artifact storage
@@ -255,10 +255,10 @@ data/outputs/wiki/
 ## Design Decisions
 
 1. **TOC is the source of truth for hierarchy.** PDF layout inference can be wrong; embedded bookmarks are more reliable for chapter structure.
-2. **Deterministic operations use no LLM.** TOC extraction, page counting, slug generation, page-label extraction, and Markdown emission are deterministic.
-3. **LLM usage is constrained and cached.** When LLM steps are added, they must check the cache before calling the model.
+2. **Deterministic operations use no LLM.** TOC extraction, page counting, slug generation, page-label extraction, and Markdown emission are deterministic. LLM enrichment was evaluated and removed from the roadmap — the deterministic pipeline is sufficient.
+3. ~~LLM usage is constrained and cached~~: Removed from roadmap. The pipeline is fully deterministic.
 4. **Structured intermediates over text-to-text.** The pipeline produces JSON artifacts, not just "PDF in → Markdown out." This enables inspection, debugging, and partial re-runs.
-5. **Extraction engines are pluggable.** Marker is the default for quality; PyMuPDF is the fast fallback. New engines (Docling, OCR) can be added via `@register_engine`.
+5. **Extraction engines are pluggable.** Three engines at three price points: Marker (high quality, ~30s/page), Docling (faster ML, ~1-5s/page), PyMuPDF (deterministic, ~0.1s/page). New engines can be added via `@register_engine`.
 6. **Marker output is cached at the full-PDF level.** A single Marker call converts the entire PDF; the result is cached as `marker_full_md.md` and split into sections on subsequent runs.
 7. **Multi-PDF from the start.** All identities are namespaced by source_id. Cross-book page references are resolved by searching all loaded section trees.
 8. **Standard Markdown relative links** — not Obsidian `[[wiki-links]]`. Works in GitHub, GitLab, VS Code, and any CommonMark renderer.

@@ -4,7 +4,7 @@
 
 **PDF-to-Wiki** converts pen-and-paper rulebook PDFs into structured Markdown wikis with full traceability from generated Markdown back to source PDF pages. The pipeline extracts TOC/outline, page labels, and section metadata from PDFs, builds a canonical section tree, extracts text content per section (Marker ML or PyMuPDF deterministic), runs repair/normalization, and emits Markdown files with YAML frontmatter.
 
-**Current milestone (M5 ✅):** Core pipeline and quality features complete, including glossary extraction, entity page generation, and PyMuPDF table wiring. Full feature set for three large rulebooks. Semantic enrichment (entity link injection, LLM) deferred to M6.
+**Current milestone (M5 ✅):** Feature-complete. Glossary extraction, entity page generation, entity link injection, in-place table replacement, and auto-validate all implemented. Remaining roadmap items are quality improvements (heading repair, Roman-numeral front-matter detection, sub-heading depth limit) — no major architectural changes needed.
 
 ---
 
@@ -24,8 +24,7 @@ These are **non-negotiable** unless explicitly reconsidered:
 - **Markdown is NOT the only source of truth.** The canonical section tree JSON and the SQLite/JSON artifacts are the primary records.
 - **Extraction engines are pluggable.** `BaseEngine` ABC in `extract/` with `@register_engine` decorator. Add new engines by subclassing and decorating.
 - **Default engine is Marker** (high quality, ML-powered, ~30s/page). PyMuPDF is the fast fallback (~0.1s/page).
-- **Use LLMs only for non-deterministic tasks.** TOC extraction, page counting, slug generation, page-label extraction, Markdown emission, and engine dispatch must remain deterministic. Marker's ML inference is considered a "deterministic-ish" extraction step (cached, not LLM-driven).
-- **LLM backend:** Ollama, default model `glm-5.1:cloud`. Cache all LLM calls aggressively.
+- **Use LLMs only for non-deterministic tasks.** TOC extraction, page counting, slug generation, page-label extraction, Markdown emission, and engine dispatch must remain deterministic. Marker's ML inference is considered a "deterministic-ish" extraction step (cached, not LLM-driven). LLM enrichment has been removed from the roadmap — the deterministic pipeline is sufficient.
 - **Cache/provenance is built in from the start.** Every expensive step checks the cache before running and records provenance after.
 - **Per-step artifacts on disk.** Intermediate results are persisted under the artifact directory.
 - **Design for multi-PDF ingestion.** All section IDs are namespaced by `source_id` (e.g., `chronicles-of-darkness/rules/combat`).
@@ -80,7 +79,7 @@ These are **non-negotiable** unless explicitly reconsidered:
 | `src/pdf_to_wiki/emit/obsidian_paths.py` | Deterministic path generation (slug → directory/file structure) |
 | `src/pdf_to_wiki/emit/validate.py` | Post-build validation: broken links, missing images, orphan files, unresolved page refs |
 | `src/pdf_to_wiki/cache/` | SQLite cache, artifact store, step manifests |
-| `src/pdf_to_wiki/llm/` | (Stub) Future: Ollama-backed enrichment |
+| `src/pdf_to_wiki/llm/` | (Stub) Dropped from roadmap — kept as placeholder |
 | `data/` | Runtime data (cache, artifacts, outputs) — gitignored |
 | `tests/` | Test suite (219 tests) |
 
@@ -192,7 +191,7 @@ All tests use `tmp_path` fixtures — no persistent state. **Do not use Marker e
 
 ## When Adding New Pipeline Steps
 
-1. Add a new module in the appropriate subpackage (`ingest/`, `extract/`, `repair/`, `emit/`, `llm/`).
+1. Add a new module in the appropriate subpackage (`ingest/`, `extract/`, `repair/`, `emit/`).
 2. Create a Pydantic model for the step's input/output data in `models.py` if needed.
 3. Use `CacheDB` and `ArtifactStore` for caching.
 4. Use `StepManifestStore` to track step completion.
