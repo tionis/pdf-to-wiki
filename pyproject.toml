@@ -24,7 +24,7 @@ marker = [
     "marker-pdf>=1.0.0",
 ]
 docling = [
-    "docling>=2.0.0",
+    "docling>=2.94.0",
 ]
 dev = [
     "pytest>=8.0.0",
